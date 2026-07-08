@@ -8,6 +8,12 @@
   box-shadow: inset 3px 0 0 #23866f;
 }
 
+.singleBranch {
+  background: #fbfcff;
+  border-color: #c8d2e4;
+  box-shadow: inset 3px 0 0 #4d6fb3;
+}
+
 .frameSlot {
   gap: 10px;
 }
@@ -17,7 +23,7 @@
 }
 
 :global(.crt-turn-branches) {
-  gap: 116px;
+  gap: 16px;
 }
 
 :global(.crt-frame-list) {

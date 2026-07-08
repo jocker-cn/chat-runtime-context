@@ -13,6 +13,8 @@ body {
 .app {
   align-items: flex-start;
   display: flex;
+  flex-direction: column;
+  gap: 24px;
   min-height: 100vh;
   padding: 32px;
 }

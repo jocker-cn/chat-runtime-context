@@ -2,6 +2,7 @@ import type { Message } from "@ag-ui/client";
 import { SocketAdapterAgent, WebSocketBackendTransport } from "./adapters/socketAdapter";
 import { AgUiAgentSource } from "./source/AgUiAgentSource";
 import { CompareChatRuntime } from "../../core/runtime/CompareChatRuntime";
+import { SingleAgentRuntime } from "../../core/runtime/SingleAgentRuntime";
 import { StaticAnswerSource } from "./source/StaticAnswerSource";
 
 export type DemoMessage = Message & {
@@ -111,6 +112,39 @@ export function createBeComparisonRuntime({
         }),
       },
     ],
+  });
+}
+
+export interface BeSingleRuntimeOptions {
+  websocketUrl?: string;
+  threadId?: string;
+}
+
+export function createBeSingleRuntime({
+  websocketUrl = "ws://localhost:8080/ws/copilot",
+  threadId = "single-chat",
+}: BeSingleRuntimeOptions = {}) {
+  const agent = createSocketAgent({
+    websocketUrl,
+    agentId: "agent-single",
+    description: "Single Agent",
+    threadId,
+  });
+
+  return new SingleAgentRuntime<string, Message>({
+    threadId,
+    branchId: "agent-single",
+    branchLabel: "Single Agent",
+    createInputMessage: (input, turnId) => ({
+      id: `${turnId}:input`,
+      role: "user",
+      content: input,
+    }),
+    source: new AgUiAgentSource({
+      id: "agent-single",
+      label: "Single Agent",
+      agent,
+    }),
   });
 }
 
