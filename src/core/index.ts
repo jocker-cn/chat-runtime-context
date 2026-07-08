@@ -30,6 +30,7 @@ export {
 } from "./runtime/CompareChatRuntime";
 export type {
   ChatInputMessageFactory,
+  CompareChatRuntimeHistoryTurn,
   CompareChatRuntimeOptions,
   RemoveChatTurnOptions,
 } from "./runtime/CompareChatRuntime";
@@ -39,6 +40,30 @@ export {
 export type {
   SingleAgentRuntimeOptions,
 } from "./runtime/SingleAgentRuntime";
+
+export {
+  createMainBranchHistoryTurns,
+} from "./history/createMainBranchHistoryTurns";
+export type {
+  CreateMainBranchHistoryTurnsOptions,
+  HistoryBranchMessageContext,
+  HistoryBranchMessagePredicate,
+  HistoryBranchMetadataFactory,
+  HistoryCreatedAtFactory,
+  HistoryInputMessagePredicate,
+  HistorySelectionFactory,
+  HistoryTurnIdFactory,
+  HistoryTurnMetadataFactory,
+} from "./history/createMainBranchHistoryTurns";
+
+export {
+  AgUiAgentSource,
+  createAgUiAgentSource,
+} from "./source/AgUiAgentSource";
+export type {
+  AgUiAgentInput,
+  AgUiAgentSourceOptions,
+} from "./source/AgUiAgentSource";
 
 export type {
   AnswerSource,

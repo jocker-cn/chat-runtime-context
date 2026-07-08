@@ -7,14 +7,14 @@ import type {
 import type {
   ChatMetadata,
   MessageReader,
-} from "../../core";
+} from "../contracts/chat-runtime";
 import type {
   AnswerSource,
   ChatSourceEvent,
   ChatSourceRunContext,
   DeleteSourceMessagesContext,
-} from "../../core";
-import { AsyncQueue } from "../../core/source/asyncQueue";
+} from "./answer-source";
+import { AsyncQueue } from "./asyncQueue";
 
 export type AgUiAgentInput =
   | string

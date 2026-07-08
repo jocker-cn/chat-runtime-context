@@ -1,6 +1,7 @@
 import type { Message } from "@ag-ui/client";
 import type { ChatMetadata } from "../contracts/chat-runtime";
 import type { AnswerSource } from "../source/answer-source";
+import { createMainBranchHistoryTurns } from "../history/createMainBranchHistoryTurns";
 import { CompareChatRuntime } from "./CompareChatRuntime";
 import type {
   ChatInputMessageFactory,
@@ -28,6 +29,7 @@ export interface SingleAgentRuntimeOptions<
   branchLabel?: string;
   sourceId?: string;
   metadata?: TSourceMetadata;
+  historyMessages?: readonly TMessage[];
 }
 
 export class SingleAgentRuntime<
@@ -52,8 +54,18 @@ export class SingleAgentRuntime<
       TSourceMetadata
     >,
   ) {
+    const historyTurns =
+      options.historyTurns ??
+      (options.historyMessages
+        ? createMainBranchHistoryTurns<TMessage, TTurnMetadata, TBranchMetadata>({
+            messages: options.historyMessages,
+            branchLabel: options.branchLabel ?? options.source.label,
+          })
+        : undefined);
+
     super({
       ...options,
+      historyTurns,
       sources: [
         {
           source: options.source,

@@ -37,6 +37,11 @@ export interface CompareChatRuntimeOptions<
     source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
     index: number,
   ) => string;
+  historyTurns?: readonly CompareChatRuntimeHistoryTurn<
+    TMessage,
+    TTurnMetadata,
+    TBranchMetadata
+  >[];
   getTurnMetadata?: (
     input: TInput,
     options?: ChatRunOptions<TMessage>,
@@ -45,6 +50,23 @@ export interface CompareChatRuntimeOptions<
     source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
     index: number,
   ) => TBranchMetadata | undefined;
+}
+
+export interface CompareChatRuntimeHistoryTurn<
+  TMessage extends Message = Message,
+  TTurnMetadata extends ChatMetadata = ChatMetadata,
+  TBranchMetadata extends ChatMetadata = ChatMetadata,
+> {
+  id: string;
+  sourceBranchId?: string;
+  inputMessage?: TMessage;
+  inputMessageId?: string;
+  messageIds: readonly string[];
+  createdAt?: number;
+  metadata?: TTurnMetadata;
+  branchLabel?: string;
+  branchMetadata?: TBranchMetadata;
+  selection?: ChatBranchSelectionInput<TBranchMetadata>;
 }
 
 interface ActiveBranchRun<
@@ -135,6 +157,10 @@ export class CompareChatRuntime<
       ((source, index) => source.branchId ?? source.source.id ?? `branch-${index + 1}`);
     this.getTurnMetadata = options.getTurnMetadata;
     this.getBranchMetadata = options.getBranchMetadata;
+
+    if (options.historyTurns?.length) {
+      this.initializeHistoryTurns(options.historyTurns);
+    }
   }
 
   public async send(
@@ -399,6 +425,96 @@ export class CompareChatRuntime<
       );
   }
 
+  private initializeHistoryTurns(
+    historyTurns: readonly CompareChatRuntimeHistoryTurn<
+      TMessage,
+      TTurnMetadata,
+      TBranchMetadata
+    >[],
+  ) {
+    const sourceEntries = this.resolveSourceEntries();
+    const turnIds = [...this.snapshot.turnIds];
+    const turnsById = { ...this.snapshot.turnsById };
+    const branchesById = { ...this.snapshot.branchesById };
+
+    historyTurns.forEach((historyTurn) => {
+      const sourceEntry = historyTurn.sourceBranchId
+        ? sourceEntries.find(
+            (entry) => entry.sourceBranchId === historyTurn.sourceBranchId,
+          )
+        : sourceEntries[0];
+
+      if (!sourceEntry) {
+        throw new Error(
+          `Cannot initialize history turn "${historyTurn.id}" without a matching source.`,
+        );
+      }
+
+      const branchId = createRuntimeBranchId(
+        historyTurn.id,
+        sourceEntry.sourceBranchId,
+      );
+      const inputMessageId =
+        historyTurn.inputMessage?.id ?? historyTurn.inputMessageId;
+      const messageReader =
+        sourceEntry.source.source.messageReader ?? createMessageStore<TMessage>();
+      const messageIndex = BranchMessageIndex.fromMessageIds<TMessage>(
+        historyTurn.messageIds,
+        inputMessageId ? [inputMessageId] : [],
+      );
+      const sourceId =
+        sourceEntry.source.sourceId ??
+        sourceEntry.source.source.id ??
+        sourceEntry.sourceBranchId;
+
+      this.branchSourcesById.set(branchId, sourceEntry.source);
+      this.branchIndexesById.set(branchId, messageIndex);
+      turnIds.push(historyTurn.id);
+      turnsById[historyTurn.id] = {
+        id: historyTurn.id,
+        inputMessage: historyTurn.inputMessage,
+        inputMessageId,
+        branchIds: [branchId],
+        selectedBranchId: branchId,
+        selection: historyTurn.selection
+          ? {
+              ...historyTurn.selection,
+              branchId,
+              selectedAt: Date.now(),
+            }
+          : undefined,
+        createdAt: historyTurn.createdAt ?? Date.now(),
+        metadata: historyTurn.metadata,
+      };
+      branchesById[branchId] = {
+        id: branchId,
+        turnId: historyTurn.id,
+        label:
+          historyTurn.branchLabel ??
+          sourceEntry.source.label ??
+          sourceEntry.source.source.label,
+        sourceId,
+        anchorMessageId: inputMessageId,
+        messageReader,
+        selectMessages: createBranchSelector(
+          messageIndex,
+          sourceEntry.source.source.selectMessages,
+        ),
+        status: "completed",
+        metadata:
+          historyTurn.branchMetadata ??
+          (sourceEntry.source.metadata as TBranchMetadata | undefined),
+      };
+    });
+
+    this.commitSnapshot({
+      ...this.snapshot,
+      turnIds,
+      turnsById,
+      branchesById,
+    });
+  }
+
   private startBranchRun(
     input: TInput,
     branchId: string,
@@ -580,6 +696,18 @@ class BranchMessageIndex<TMessage extends Message> {
   private readonly baselineMessageIds: ReadonlySet<string>;
   private readonly inputMessageIds = new Set<string>();
   private readonly messageIds = new Set<string>();
+
+  static fromMessageIds<TMessage extends Message>(
+    messageIds: readonly string[],
+    inputMessageIds: readonly string[],
+  ) {
+    const index = new BranchMessageIndex<TMessage>([], inputMessageIds);
+    messageIds.forEach((messageId) => {
+      index.messageIds.add(messageId);
+    });
+
+    return index;
+  }
 
   constructor(
     initialMessages: readonly TMessage[],
