@@ -146,8 +146,17 @@ export class CompareChatRuntime<
     };
 
     const branchRunEntries = branchEntries.map((entry) => {
+      const controller = new AbortController();
+      const context: ChatSourceRunContext<TSourceMetadata> = {
+        threadId: this.snapshot.threadId,
+        turnId,
+        branchId: entry.branchId,
+        sourceId: entry.source.sourceId ?? entry.source.source.id,
+        inputMessage,
+        signal: controller.signal,
+        metadata: entry.source.metadata,
+      };
       const messageReader =
-        entry.source.messageReader ??
         entry.source.source.messageReader ??
         createMessageStore<TMessage>();
 
@@ -157,6 +166,8 @@ export class CompareChatRuntime<
         messageStore: isMessageStore<TMessage>(messageReader)
           ? messageReader
           : undefined,
+        controller,
+        context,
       };
     });
 
@@ -176,8 +187,7 @@ export class CompareChatRuntime<
           sourceId: source.sourceId ?? source.source.id ?? sourceBranchId,
           anchorMessageId: inputMessage?.id,
           messageReader,
-          selectMessages:
-            source.selectMessages ?? source.source.selectMessages,
+          selectMessages: source.source.selectMessages,
           status: "idle",
           metadata: (
             this.getBranchMetadata?.(source, index) ?? source.metadata
@@ -201,13 +211,19 @@ export class CompareChatRuntime<
       },
     });
 
-    branchRunEntries.forEach(({ source, branchId, messageStore }) => {
+    branchRunEntries.forEach(({
+      source,
+      branchId,
+      messageStore,
+      controller,
+      context,
+    }) => {
       this.startBranchRun(
         input,
-        turnId,
         branchId,
         source,
-        inputMessage,
+        controller,
+        context,
         messageStore,
       );
     });
@@ -303,23 +319,12 @@ export class CompareChatRuntime<
 
   private startBranchRun(
     input: TInput,
-    turnId: string,
     branchId: string,
     source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
-    inputMessage?: TMessage,
+    controller: AbortController,
+    context: ChatSourceRunContext<TSourceMetadata>,
     messageStore?: MessageStore<TMessage>,
   ) {
-    const controller = new AbortController();
-    const context: ChatSourceRunContext<TSourceMetadata> = {
-      threadId: this.snapshot.threadId,
-      turnId,
-      branchId,
-      sourceId: source.sourceId ?? source.source.id,
-      inputMessage,
-      signal: controller.signal,
-      metadata: source.metadata,
-    };
-
     this.activeRuns.set(branchId, {
       source,
       context,

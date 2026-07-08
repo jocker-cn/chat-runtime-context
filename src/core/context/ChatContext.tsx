@@ -238,9 +238,9 @@ export function useBranchMessages<
     branch?.messageReader ?? (emptyMessageReader as MessageReader<TMessage>);
 
   return useSyncExternalStoreWithSelector(
-    reader.subscribe,
-    reader.getMessages,
-    reader.getMessages,
+    (listener) => reader.subscribe(listener),
+    () => reader.getMessages(),
+    () => reader.getMessages(),
     (messages) =>
       branch
         ? selectBranchMessages(messages, {
@@ -268,11 +268,7 @@ function selectBranchMessages<TMessage extends Message>(
     return selector(messages, context);
   }
 
-  const anchorIndex = context.anchorMessageId
-    ? messages.findIndex((message) => message.id === context.anchorMessageId)
-    : -1;
-
-  return anchorIndex >= 0 ? messages.slice(anchorIndex + 1) : messages;
+  return messages;
 }
 
 function areMessageListsEqual<TMessage extends Message>(

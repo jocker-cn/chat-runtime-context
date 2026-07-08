@@ -66,7 +66,5 @@ export interface AnswerSourceConfig<
   branchId?: string;
   label?: string;
   sourceId?: string;
-  messageReader?: MessageReader<TMessage>;
-  selectMessages?: BranchMessageSelector<TMessage>;
   metadata?: TMetadata;
 }
