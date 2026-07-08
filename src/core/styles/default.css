@@ -1,0 +1,51 @@
+.crt-runtime {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.crt-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.crt-turn-input {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.crt-turn-branches {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+}
+
+.crt-branch {
+  border: 1px solid #dce2e8;
+  border-radius: 8px;
+  background: #f9fbfc;
+  min-width: 0;
+  padding: 12px;
+}
+
+.crt-frame-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.crt-frame-list-item {
+  border-radius: 8px;
+  outline: none;
+}
+
+.crt-frame-list-item:focus {
+  box-shadow: 0 0 0 2px #23866f;
+}
+
+.crt-frame-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

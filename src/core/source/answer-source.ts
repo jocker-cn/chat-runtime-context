@@ -1,0 +1,64 @@
+import type { Message } from "@ag-ui/client";
+import type { ChatMetadata } from "../contracts/chat-runtime";
+
+export interface ChatSourceRunContext<
+  TMetadata extends ChatMetadata = ChatMetadata,
+> {
+  threadId?: string;
+  turnId: string;
+  branchId: string;
+  sourceId: string;
+  inputMessage?: Message;
+  signal: AbortSignal;
+  metadata?: TMetadata;
+}
+
+export type ChatSourceEvent<TMessage extends Message = Message> =
+  | {
+      type: "branch-started";
+    }
+  | {
+      type: "message";
+      message: TMessage;
+    }
+  | {
+      type: "messages";
+      messages: readonly TMessage[];
+    }
+  | {
+      type: "branch-completed";
+    }
+  | {
+      type: "branch-error";
+      error: unknown;
+    };
+
+export interface AnswerSource<
+  TInput = unknown,
+  TMessage extends Message = Message,
+  TMetadata extends ChatMetadata = ChatMetadata,
+> {
+  readonly id: string;
+  readonly label?: string;
+
+  run(
+    input: TInput,
+    context: ChatSourceRunContext<TMetadata>,
+  ): AsyncIterable<ChatSourceEvent<TMessage>>;
+
+  cancel?(context: ChatSourceRunContext<TMetadata>): Promise<void> | void;
+
+  dispose?(): Promise<void> | void;
+}
+
+export interface AnswerSourceConfig<
+  TInput = unknown,
+  TMessage extends Message = Message,
+  TMetadata extends ChatMetadata = ChatMetadata,
+> {
+  source: AnswerSource<TInput, TMessage, TMetadata>;
+  branchId?: string;
+  label?: string;
+  sourceId?: string;
+  metadata?: TMetadata;
+}

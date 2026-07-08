@@ -1,0 +1,25 @@
+.runtime {
+  gap: 20px;
+}
+
+.branch {
+  background: #f7faf8;
+  border-color: #b8d8cc;
+  box-shadow: inset 3px 0 0 #23866f;
+}
+
+.frameSlot {
+  gap: 10px;
+}
+
+:global(.crt-runtime) {
+  gap: 18px;
+}
+
+:global(.crt-turn-branches) {
+  gap: 116px;
+}
+
+:global(.crt-frame-list) {
+  gap: 10px;
+}
