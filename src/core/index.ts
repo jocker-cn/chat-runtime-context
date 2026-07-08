@@ -1,5 +1,7 @@
 export type {
   ChatBranch,
+  BranchMessageSelector,
+  BranchMessageSelectorContext,
   ChatBranchSelection,
   ChatBranchSelectionInput,
   ChatBranchStatus,
@@ -13,6 +15,7 @@ export type {
   ChatRuntimeSnapshot,
   ChatRuntimeStatus,
   ChatTurn,
+  MessageReader,
 } from "./contracts/chat-runtime";
 
 export {
@@ -42,6 +45,12 @@ export type {
   ChatSourceEvent,
   ChatSourceRunContext,
 } from "./source/answer-source";
+export {
+  createMessageStore,
+} from "./source/message-store";
+export type {
+  MessageStore,
+} from "./source/message-store";
 
 export {
   ChatProvider,

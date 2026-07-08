@@ -1,5 +1,10 @@
 import type { Message } from "@ag-ui/client";
-import type { ChatBranchStatus, ChatMetadata, ChatMode } from "../contracts/chat-runtime";
+import type {
+  ChatBranchStatus,
+  ChatMetadata,
+  ChatMode,
+  MessageReader,
+} from "../contracts/chat-runtime";
 
 export interface MessageRenderContext {
   threadId?: string;
@@ -9,6 +14,7 @@ export interface MessageRenderContext {
   branchStatus?: ChatBranchStatus;
   branchMetadata?: ChatMetadata;
   sourceId?: string;
+  messageReader?: MessageReader;
   selectedBranchId?: string;
   isSelectedBranch: boolean;
   groupId: string;

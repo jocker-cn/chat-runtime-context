@@ -13,6 +13,23 @@ export type ChatBranchStatus =
 
 export type ChatMetadata = Record<string, unknown>;
 
+export interface MessageReader<TMessage extends Message = Message> {
+  subscribe(listener: () => void): () => void;
+  getMessages(): readonly TMessage[];
+}
+
+export interface BranchMessageSelectorContext {
+  threadId?: string;
+  turnId: string;
+  branchId: string;
+  anchorMessageId?: string;
+}
+
+export type BranchMessageSelector<TMessage extends Message = Message> = (
+  messages: readonly TMessage[],
+  context: BranchMessageSelectorContext,
+) => readonly TMessage[];
+
 export interface ChatBranchSelectionInput<
   TMetadata extends ChatMetadata = ChatMetadata,
 > {
@@ -50,8 +67,9 @@ export interface ChatBranch<
   label?: string;
   sourceId?: string;
   anchorMessageId?: string;
+  messageReader: MessageReader<TMessage>;
+  selectMessages?: BranchMessageSelector<TMessage>;
   status: ChatBranchStatus;
-  messages: readonly TMessage[];
   error?: unknown;
   metadata?: TMetadata;
 }

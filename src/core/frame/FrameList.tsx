@@ -78,6 +78,7 @@ export function FrameList<TMessage extends Message = Message>({
                     branchStatus: branch.status,
                     branchMetadata: branch.metadata,
                     sourceId: branch.sourceId,
+                    messageReader: branch.messageReader,
                     selectedBranchId: turn?.selectedBranchId,
                     isSelectedBranch: turn?.selectedBranchId === branch.id,
                     groupId: group.id,

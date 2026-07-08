@@ -1,5 +1,9 @@
 import type { Message } from "@ag-ui/client";
-import type { ChatMetadata } from "../contracts/chat-runtime";
+import type {
+  BranchMessageSelector,
+  ChatMetadata,
+  MessageReader,
+} from "../contracts/chat-runtime";
 
 export interface ChatSourceRunContext<
   TMetadata extends ChatMetadata = ChatMetadata,
@@ -40,6 +44,8 @@ export interface AnswerSource<
 > {
   readonly id: string;
   readonly label?: string;
+  readonly messageReader?: MessageReader<TMessage>;
+  readonly selectMessages?: BranchMessageSelector<TMessage>;
 
   run(
     input: TInput,
@@ -60,5 +66,7 @@ export interface AnswerSourceConfig<
   branchId?: string;
   label?: string;
   sourceId?: string;
+  messageReader?: MessageReader<TMessage>;
+  selectMessages?: BranchMessageSelector<TMessage>;
   metadata?: TMetadata;
 }

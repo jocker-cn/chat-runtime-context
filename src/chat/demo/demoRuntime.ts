@@ -96,6 +96,9 @@ export function createBeComparisonRuntime({
       {
         branchId: "agent-a",
         label: "Agent A",
+        metadata: {
+          agent: agentA,
+        },
         source: new AgUiAgentSource({
           id: "agent-a",
           label: "Agent A",
@@ -105,6 +108,9 @@ export function createBeComparisonRuntime({
       {
         branchId: "agent-b",
         label: "Agent B",
+        metadata: {
+          agent: agentB,
+        },
         source: new AgUiAgentSource({
           id: "agent-b",
           label: "Agent B",
@@ -135,6 +141,9 @@ export function createBeSingleRuntime({
     threadId,
     branchId: "agent-single",
     branchLabel: "Single Agent",
+    metadata: {
+      agent,
+    },
     createInputMessage: (input, turnId) => ({
       id: `${turnId}:input`,
       role: "user",

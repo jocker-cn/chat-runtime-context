@@ -26,6 +26,8 @@ export interface SingleAgentRuntimeOptions<
   source: AnswerSource<TInput, TMessage, TSourceMetadata>;
   branchId?: string;
   branchLabel?: string;
+  sourceId?: string;
+  metadata?: TSourceMetadata;
 }
 
 export class SingleAgentRuntime<
@@ -57,6 +59,8 @@ export class SingleAgentRuntime<
           source: options.source,
           branchId: options.branchId ?? "main",
           label: options.branchLabel ?? options.source.label,
+          sourceId: options.sourceId,
+          metadata: options.metadata,
         },
       ],
     });

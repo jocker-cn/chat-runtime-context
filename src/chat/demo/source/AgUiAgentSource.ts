@@ -4,7 +4,10 @@ import type {
   Message,
   RunAgentParameters,
 } from "@ag-ui/client";
-import type { ChatMetadata } from "../../../core/contracts/chat-runtime";
+import type {
+  ChatMetadata,
+  MessageReader,
+} from "../../../core/contracts/chat-runtime";
 import type {
   AnswerSource,
   ChatSourceEvent,
@@ -39,9 +42,11 @@ export class AgUiAgentSource<
 {
   public readonly id: string;
   public readonly label?: string;
-  private readonly agent: AbstractAgent;
+  public readonly agent: AbstractAgent;
+  public readonly messageReader: MessageReader<Message>;
   private readonly createUserMessage: (content: string) => Message;
   private readonly parameters?: RunAgentParameters | (() => RunAgentParameters);
+  private readonly listeners = new Set<() => void>();
 
   constructor(options: AgUiAgentSourceOptions) {
     this.agent = options.agent;
@@ -55,6 +60,16 @@ export class AgUiAgentSource<
         role: "user",
         content,
       }));
+    this.messageReader = {
+      subscribe: (listener) => {
+        this.listeners.add(listener);
+
+        return () => {
+          this.listeners.delete(listener);
+        };
+      },
+      getMessages: () => this.agent.messages,
+    };
   }
 
   run(
@@ -63,28 +78,18 @@ export class AgUiAgentSource<
   ): AsyncIterable<ChatSourceEvent<Message>> {
     const queue = new AsyncQueue<ChatSourceEvent<Message>>();
     const messages = this.resolveInputMessages(input, context.inputMessage);
-    const anchorMessageId = messages[messages.length - 1]?.id;
 
     if (messages.length > 0) {
       this.agent.addMessages([...messages]);
+      this.notifyMessageReaders();
     }
-
-    const emitMessages = () => {
-      queue.push({
-        type: "messages",
-        messages: selectRunResponseMessages(
-          this.agent.messages,
-          anchorMessageId,
-        ),
-      });
-    };
 
     const subscriber: AgentSubscriber = {
       onRunStartedEvent: () => {
         queue.push({ type: "branch-started" });
       },
       onMessagesChanged: () => {
-        emitMessages();
+        this.notifyMessageReaders();
       },
       onRunErrorEvent: ({ event }) => {
         queue.push({
@@ -93,7 +98,7 @@ export class AgUiAgentSource<
         });
       },
       onRunFinishedEvent: () => {
-        emitMessages();
+        this.notifyMessageReaders();
         queue.push({ type: "branch-completed" });
       },
     };
@@ -103,7 +108,7 @@ export class AgUiAgentSource<
     void this.agent
       .runAgent(parameters, subscriber)
       .then(() => {
-        emitMessages();
+        this.notifyMessageReaders();
         queue.close();
       })
       .catch((error: unknown) => {
@@ -136,6 +141,10 @@ export class AgUiAgentSource<
       close?: () => void;
     };
     maybeClose.close?.();
+  }
+
+  private notifyMessageReaders() {
+    this.listeners.forEach((listener) => listener());
   }
 
   private resolveInputMessages(
@@ -200,21 +209,4 @@ function isInputConfig(input: unknown): input is AgUiAgentInputConfig {
     !Array.isArray(input) &&
     !isMessage(input)
   );
-}
-
-function selectRunResponseMessages(
-  messages: readonly Message[],
-  anchorMessageId?: string,
-) {
-  const anchorIndex = anchorMessageId
-    ? messages.findIndex((message) => message.id === anchorMessageId)
-    : -1;
-  const candidates =
-    anchorIndex >= 0 ? messages.slice(anchorIndex + 1) : messages;
-
-  return candidates.filter((message) => isResponseMessageRole(message.role));
-}
-
-function isResponseMessageRole(role: Message["role"]) {
-  return role !== "user" && role !== "system" && role !== "developer";
 }

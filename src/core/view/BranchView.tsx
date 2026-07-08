@@ -1,5 +1,5 @@
 import type { Message } from "@ag-ui/client";
-import { useChatBranch } from "../context/ChatContext";
+import { useBranchMessages, useChatBranch } from "../context/ChatContext";
 import { FrameList } from "../frame/FrameList";
 import type { FrameRenderer } from "../frame/createFrameRenderer";
 import type { FrameListAccessibilityOptions } from "../frame/useFrameListAccessibility";
@@ -26,8 +26,9 @@ export function BranchView<TMessage extends Message = Message>({
   accessibility,
 }: BranchViewProps<TMessage>) {
   const branch = useChatBranch<TMessage>(branchId);
+  const messages = useBranchMessages<TMessage>(branchId);
 
-  if (!branch || branch.messages.length === 0) {
+  if (!branch || messages.length === 0) {
     return null;
   }
 

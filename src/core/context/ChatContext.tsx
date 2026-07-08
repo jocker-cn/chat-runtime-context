@@ -11,7 +11,9 @@ import type {
   ChatBranch,
   ChatBranchSelection,
   ChatBranchSelectionInput,
+  BranchMessageSelector,
   ChatMetadata,
+  MessageReader,
   ChatRuntime,
   ChatRuntimeSnapshot,
   ChatRuntimeStatus,
@@ -28,6 +30,13 @@ interface InternalChatContextValue {
 const ChatContext = createContext<InternalChatContextValue | undefined>(
   undefined,
 );
+
+const emptyMessages: readonly Message[] = [];
+
+const emptyMessageReader: MessageReader<Message> = {
+  subscribe: () => () => undefined,
+  getMessages: () => emptyMessages,
+};
 
 export interface ChatProviderProps<
   TInput = unknown,
@@ -214,7 +223,7 @@ export function useChatBranch<
   TMetadata extends ChatMetadata = ChatMetadata,
 >(branchId: string): ChatBranch<TMessage, TMetadata> | undefined {
   return useChatSelector(
-    (snapshot) => snapshot.branchesById[branchId] as
+    (snapshot) => snapshot.branchesById[branchId] as unknown as
       | ChatBranch<TMessage, TMetadata>
       | undefined,
   );
@@ -223,8 +232,55 @@ export function useChatBranch<
 export function useBranchMessages<
   TMessage extends Message = Message,
 >(branchId: string): readonly TMessage[] {
-  return useChatSelector(
-    (snapshot) =>
-      (snapshot.branchesById[branchId]?.messages ?? []) as readonly TMessage[],
+  const branch = useChatBranch<TMessage>(branchId);
+  const threadId = useChatSelector((snapshot) => snapshot.threadId);
+  const reader =
+    branch?.messageReader ?? (emptyMessageReader as MessageReader<TMessage>);
+
+  return useSyncExternalStoreWithSelector(
+    reader.subscribe,
+    reader.getMessages,
+    reader.getMessages,
+    (messages) =>
+      branch
+        ? selectBranchMessages(messages, {
+            threadId,
+            turnId: branch.turnId,
+            branchId: branch.id,
+            anchorMessageId: branch.anchorMessageId,
+          }, branch.selectMessages)
+        : (emptyMessages as readonly TMessage[]),
+    areMessageListsEqual,
   );
+}
+
+function selectBranchMessages<TMessage extends Message>(
+  messages: readonly TMessage[],
+  context: {
+    threadId?: string;
+    turnId: string;
+    branchId: string;
+    anchorMessageId?: string;
+  },
+  selector?: BranchMessageSelector<TMessage>,
+) {
+  if (selector) {
+    return selector(messages, context);
+  }
+
+  const anchorIndex = context.anchorMessageId
+    ? messages.findIndex((message) => message.id === context.anchorMessageId)
+    : -1;
+
+  return anchorIndex >= 0 ? messages.slice(anchorIndex + 1) : messages;
+}
+
+function areMessageListsEqual<TMessage extends Message>(
+  previous: readonly TMessage[],
+  next: readonly TMessage[],
+) {
+  if (previous === next) return true;
+  if (previous.length !== next.length) return false;
+
+  return previous.every((message, index) => message === next[index]);
 }

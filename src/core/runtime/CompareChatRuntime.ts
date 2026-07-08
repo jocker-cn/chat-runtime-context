@@ -11,6 +11,8 @@ import type {
   AnswerSourceConfig,
   ChatSourceRunContext,
 } from "../source/answer-source";
+import type { MessageStore } from "../source/message-store";
+import { createMessageStore } from "../source/message-store";
 import { BaseChatRuntime, createInitialChatRuntimeSnapshot } from "./BaseChatRuntime";
 
 export type ChatInputMessageFactory<
@@ -51,6 +53,7 @@ interface ActiveBranchRun<
   source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>;
   context: ChatSourceRunContext<TSourceMetadata>;
   controller: AbortController;
+  messageStore?: MessageStore<TMessage>;
 }
 
 export class CompareChatRuntime<
@@ -142,8 +145,29 @@ export class CompareChatRuntime<
       metadata: this.getTurnMetadata?.(input, options),
     };
 
+    const branchRunEntries = branchEntries.map((entry) => {
+      const messageReader =
+        entry.source.messageReader ??
+        entry.source.source.messageReader ??
+        createMessageStore<TMessage>();
+
+      return {
+        ...entry,
+        messageReader,
+        messageStore: isMessageStore<TMessage>(messageReader)
+          ? messageReader
+          : undefined,
+      };
+    });
+
     const branches = Object.fromEntries(
-      branchEntries.map(({ source, sourceBranchId, branchId, index }) => [
+      branchRunEntries.map(({
+        source,
+        sourceBranchId,
+        branchId,
+        index,
+        messageReader,
+      }) => [
         branchId,
         {
           id: branchId,
@@ -151,9 +175,13 @@ export class CompareChatRuntime<
           label: source.label ?? source.source.label,
           sourceId: source.sourceId ?? source.source.id ?? sourceBranchId,
           anchorMessageId: inputMessage?.id,
+          messageReader,
+          selectMessages:
+            source.selectMessages ?? source.source.selectMessages,
           status: "idle",
-          messages: [],
-          metadata: this.getBranchMetadata?.(source, index),
+          metadata: (
+            this.getBranchMetadata?.(source, index) ?? source.metadata
+          ) as TBranchMetadata | undefined,
         } satisfies ChatBranch<TMessage, TBranchMetadata>,
       ]),
     );
@@ -173,8 +201,15 @@ export class CompareChatRuntime<
       },
     });
 
-    branchEntries.forEach(({ source, branchId }) => {
-      this.startBranchRun(input, turnId, branchId, source, inputMessage);
+    branchRunEntries.forEach(({ source, branchId, messageStore }) => {
+      this.startBranchRun(
+        input,
+        turnId,
+        branchId,
+        source,
+        inputMessage,
+        messageStore,
+      );
     });
 
     return {
@@ -272,6 +307,7 @@ export class CompareChatRuntime<
     branchId: string,
     source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
     inputMessage?: TMessage,
+    messageStore?: MessageStore<TMessage>,
   ) {
     const controller = new AbortController();
     const context: ChatSourceRunContext<TSourceMetadata> = {
@@ -288,19 +324,21 @@ export class CompareChatRuntime<
       source,
       context,
       controller,
+      messageStore,
     });
 
-    void this.consumeSource(input, branchId, source, context);
+    void this.consumeSource(input, branchId, source, context, messageStore);
   }
 
   private async consumeSource(
     input: TInput,
     branchId: string,
-    source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
+    sourceConfig: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
     context: ChatSourceRunContext<TSourceMetadata>,
+    messageStore?: MessageStore<TMessage>,
   ) {
     try {
-      for await (const event of source.source.run(input, context)) {
+      for await (const event of sourceConfig.source.run(input, context)) {
         if (context.signal.aborted) {
           return;
         }
@@ -314,12 +352,12 @@ export class CompareChatRuntime<
         }
 
         if (event.type === "message") {
-          this.appendBranchMessage(branchId, event.message);
+          messageStore?.appendMessage(event.message);
           continue;
         }
 
         if (event.type === "messages") {
-          this.replaceBranchMessages(branchId, event.messages);
+          messageStore?.setMessages(event.messages);
           continue;
         }
 
@@ -346,24 +384,6 @@ export class CompareChatRuntime<
       this.activeRuns.delete(branchId);
       this.refreshRuntimeStatus();
     }
-  }
-
-  private appendBranchMessage(branchId: string, message: TMessage) {
-    const branch = this.snapshot.branchesById[branchId];
-    if (!branch) return;
-
-    this.updateBranch(branchId, {
-      messages: [...branch.messages, message],
-    });
-  }
-
-  private replaceBranchMessages(
-    branchId: string,
-    messages: readonly TMessage[],
-  ) {
-    this.updateBranch(branchId, {
-      messages: [...messages],
-    });
   }
 
   private updateBranch(
@@ -410,4 +430,15 @@ function createDefaultId(prefix: string) {
 
 function createRuntimeBranchId(turnId: string, sourceBranchId: string) {
   return `${turnId}:${sourceBranchId}`;
+}
+
+function isMessageStore<TMessage extends Message>(
+  reader: unknown,
+): reader is MessageStore<TMessage> {
+  return (
+    typeof reader === "object" &&
+    reader !== null &&
+    "appendMessage" in reader &&
+    "setMessages" in reader
+  );
 }
