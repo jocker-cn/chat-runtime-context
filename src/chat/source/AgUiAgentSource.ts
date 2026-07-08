@@ -5,16 +5,16 @@ import type {
   RunAgentParameters,
 } from "@ag-ui/client";
 import type {
-  BranchMessageSelector,
   ChatMetadata,
   MessageReader,
-} from "../../../core/contracts/chat-runtime";
+} from "../../core";
 import type {
   AnswerSource,
   ChatSourceEvent,
   ChatSourceRunContext,
-} from "../../../core/source/answer-source";
-import { AsyncQueue } from "../../../core/source/asyncQueue";
+  DeleteSourceMessagesContext,
+} from "../../core";
+import { AsyncQueue } from "../../core/source/asyncQueue";
 
 export type AgUiAgentInput =
   | string
@@ -45,10 +45,8 @@ export class AgUiAgentSource<
   public readonly label?: string;
   public readonly agent: AbstractAgent;
   public readonly messageReader: MessageReader<Message>;
-  public readonly selectMessages: BranchMessageSelector<Message>;
   private readonly createUserMessage: (content: string) => Message;
   private readonly parameters?: RunAgentParameters | (() => RunAgentParameters);
-  private readonly branchStatesById = new Map<string, BranchRunMessageState>();
   private readonly agentMessageReader: AgentMessageReader;
   private readonly unsubscribeAgent: () => void;
 
@@ -59,8 +57,6 @@ export class AgUiAgentSource<
     this.parameters = options.parameters;
     this.agentMessageReader = new AgentMessageReader(this.agent);
     this.messageReader = this.agentMessageReader;
-    this.selectMessages = (messages, context) =>
-      this.branchStatesById.get(context.branchId)?.select(messages) ?? [];
     this.createUserMessage =
       options.createUserMessage ??
       ((content) => ({
@@ -81,24 +77,14 @@ export class AgUiAgentSource<
   ): AsyncIterable<ChatSourceEvent<Message>> {
     const queue = new AsyncQueue<ChatSourceEvent<Message>>();
     const messages = this.resolveInputMessages(input, context.inputMessage);
-    const branchState = new BranchRunMessageState(
-      this.agent.messages,
-      getInputMessageIds(context.inputMessage),
-    );
-    this.branchStatesById.set(context.branchId, branchState);
 
     if (messages.length > 0) {
-      branchState.excludeMessages(messages);
       this.agent.addMessages([...messages]);
-      this.syncBranchState(context);
     }
 
     const subscriber: AgentSubscriber = {
       onRunStartedEvent: () => {
         queue.push({ type: "branch-started" });
-      },
-      onMessagesChanged: () => {
-        this.syncBranchState(context);
       },
       onRunErrorEvent: ({ event }) => {
         queue.push({
@@ -107,7 +93,6 @@ export class AgUiAgentSource<
         });
       },
       onRunFinishedEvent: () => {
-        this.syncBranchState(context);
         queue.push({ type: "branch-completed" });
       },
     };
@@ -117,7 +102,6 @@ export class AgUiAgentSource<
     void this.agent
       .runAgent(parameters, subscriber)
       .then(() => {
-        this.syncBranchState(context);
         queue.close();
       })
       .catch((error: unknown) => {
@@ -144,6 +128,20 @@ export class AgUiAgentSource<
     this.agent.abortRun();
   }
 
+  deleteMessages(
+    messageIds: readonly string[],
+    _context: DeleteSourceMessagesContext,
+  ): void {
+    if (messageIds.length === 0) {
+      return;
+    }
+
+    const messageIdSet = new Set(messageIds);
+    this.agent.setMessages(
+      this.agent.messages.filter((message) => !messageIdSet.has(message.id)),
+    );
+  }
+
   dispose(): void {
     this.agent.abortRun();
     this.unsubscribeAgent();
@@ -151,13 +149,6 @@ export class AgUiAgentSource<
       close?: () => void;
     };
     maybeClose.close?.();
-  }
-
-  private syncBranchState(context: ChatSourceRunContext<TMetadata>) {
-    this.branchStatesById
-      .get(context.branchId)
-      ?.syncFromMessages(this.agent.messages);
-    this.agentMessageReader.notify();
   }
 
   private resolveInputMessages(
@@ -206,6 +197,13 @@ export class AgUiAgentSource<
   }
 }
 
+export function createAgUiAgentSource<
+  TInput extends AgUiAgentInput = AgUiAgentInput,
+  TMetadata extends ChatMetadata = ChatMetadata,
+>(options: AgUiAgentSourceOptions) {
+  return new AgUiAgentSource<TInput, TMetadata>(options);
+}
+
 class AgentMessageReader implements MessageReader<Message> {
   private readonly agent: AbstractAgent;
   private readonly listeners = new Set<() => void>();
@@ -227,49 +225,6 @@ class AgentMessageReader implements MessageReader<Message> {
   notify = () => {
     this.listeners.forEach((listener) => listener());
   };
-}
-
-class BranchRunMessageState {
-  private readonly baselineMessageIds: ReadonlySet<string>;
-  private readonly inputMessageIds: Set<string>;
-  private readonly messageIds = new Set<string>();
-
-  constructor(
-    initialMessages: readonly Message[],
-    inputMessageIds: ReadonlySet<string>,
-  ) {
-    this.inputMessageIds = new Set(inputMessageIds);
-    this.baselineMessageIds = new Set(
-      initialMessages.map((message) => message.id),
-    );
-  }
-
-  select(messages: readonly Message[]) {
-    return messages.filter((message) => this.messageIds.has(message.id));
-  }
-
-  excludeMessages(messages: readonly Message[]) {
-    messages.forEach((message) => {
-      this.inputMessageIds.add(message.id);
-    });
-  }
-
-  syncFromMessages(messages: readonly Message[]) {
-    messages.forEach((message) => {
-      if (
-        this.baselineMessageIds.has(message.id) ||
-        this.inputMessageIds.has(message.id)
-      ) {
-        return;
-      }
-
-      this.messageIds.add(message.id);
-    });
-  }
-}
-
-function getInputMessageIds(inputMessage?: Message) {
-  return new Set(inputMessage ? [inputMessage.id] : []);
 }
 
 function isMessage(input: unknown): input is Message {

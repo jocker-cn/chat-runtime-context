@@ -1,11 +1,13 @@
 import type { Message } from "@ag-ui/client";
 import type {
+  BranchMessageSelector,
   ChatBranch,
   ChatBranchSelectionInput,
   ChatMetadata,
   ChatRunHandle,
   ChatRunOptions,
   ChatTurn,
+  MessageReader,
 } from "../contracts/chat-runtime";
 import type {
   AnswerSourceConfig,
@@ -54,6 +56,13 @@ interface ActiveBranchRun<
   context: ChatSourceRunContext<TSourceMetadata>;
   controller: AbortController;
   messageStore?: MessageStore<TMessage>;
+  messageIndex?: BranchMessageIndex<TMessage>;
+  unsubscribeMessageReader?: () => void;
+}
+
+export interface RemoveChatTurnOptions {
+  deleteMessages?: boolean;
+  includeInput?: boolean;
 }
 
 export class CompareChatRuntime<
@@ -88,6 +97,14 @@ export class CompareChatRuntime<
   private readonly activeRuns = new Map<
     string,
     ActiveBranchRun<TInput, TMessage, TSourceMetadata>
+  >();
+  private readonly branchIndexesById = new Map<
+    string,
+    BranchMessageIndex<TMessage>
+  >();
+  private readonly branchSourcesById = new Map<
+    string,
+    AnswerSourceConfig<TInput, TMessage, TSourceMetadata>
   >();
 
   constructor(
@@ -156,9 +173,15 @@ export class CompareChatRuntime<
         signal: controller.signal,
         metadata: entry.source.metadata,
       };
+      const sourceMessageReader = entry.source.source.messageReader;
       const messageReader =
-        entry.source.source.messageReader ??
-        createMessageStore<TMessage>();
+        sourceMessageReader ?? createMessageStore<TMessage>();
+      const messageIndex = sourceMessageReader
+        ? new BranchMessageIndex<TMessage>(
+            messageReader.getMessages(),
+            inputMessage ? [inputMessage.id] : [],
+          )
+        : undefined;
 
       return {
         ...entry,
@@ -166,6 +189,11 @@ export class CompareChatRuntime<
         messageStore: isMessageStore<TMessage>(messageReader)
           ? messageReader
           : undefined,
+        messageIndex,
+        selectMessages: createBranchSelector(
+          messageIndex,
+          entry.source.source.selectMessages,
+        ),
         controller,
         context,
       };
@@ -178,6 +206,7 @@ export class CompareChatRuntime<
         branchId,
         index,
         messageReader,
+        selectMessages,
       }) => [
         branchId,
         {
@@ -187,7 +216,7 @@ export class CompareChatRuntime<
           sourceId: source.sourceId ?? source.source.id ?? sourceBranchId,
           anchorMessageId: inputMessage?.id,
           messageReader,
-          selectMessages: source.source.selectMessages,
+          selectMessages,
           status: "idle",
           metadata: (
             this.getBranchMetadata?.(source, index) ?? source.metadata
@@ -195,6 +224,13 @@ export class CompareChatRuntime<
         } satisfies ChatBranch<TMessage, TBranchMetadata>,
       ]),
     );
+
+    branchRunEntries.forEach(({ branchId, source, messageIndex }) => {
+      this.branchSourcesById.set(branchId, source);
+      if (messageIndex) {
+        this.branchIndexesById.set(branchId, messageIndex);
+      }
+    });
 
     this.patchSnapshot({
       status: "running",
@@ -217,6 +253,8 @@ export class CompareChatRuntime<
       messageStore,
       controller,
       context,
+      messageReader,
+      messageIndex,
     }) => {
       this.startBranchRun(
         input,
@@ -224,6 +262,8 @@ export class CompareChatRuntime<
         source,
         controller,
         context,
+        messageReader,
+        messageIndex,
         messageStore,
       );
     });
@@ -248,6 +288,7 @@ export class CompareChatRuntime<
 
     runs.forEach(([branchId, run]) => {
       run.controller.abort();
+      run.unsubscribeMessageReader?.();
       void run.source.source.cancel?.(run.context);
       this.activeRuns.delete(branchId);
       this.updateBranch(branchId, {
@@ -255,6 +296,47 @@ export class CompareChatRuntime<
       });
     });
 
+    this.refreshRuntimeStatus();
+  }
+
+  public removeTurn(
+    turnId: string,
+    options: RemoveChatTurnOptions = {},
+  ): void {
+    this.assertNotDisposed();
+
+    const turn = this.snapshot.turnsById[turnId];
+    if (!turn) {
+      return;
+    }
+
+    this.cancel({ turnId });
+
+    if (options.deleteMessages) {
+      this.deleteTurnMessages(turn, {
+        includeInput: options.includeInput ?? true,
+      });
+    }
+
+    const turnsById = { ...this.snapshot.turnsById };
+    const branchesById = { ...this.snapshot.branchesById };
+
+    delete turnsById[turnId];
+    turn.branchIds.forEach((branchId) => {
+      delete branchesById[branchId];
+      this.branchIndexesById.delete(branchId);
+      this.branchSourcesById.delete(branchId);
+    });
+
+    this.patchSnapshot({
+      turnIds: this.snapshot.turnIds.filter((id) => id !== turnId),
+      turnsById,
+      branchesById,
+      activeTurnId:
+        this.snapshot.activeTurnId === turnId
+          ? undefined
+          : this.snapshot.activeTurnId,
+    });
     this.refreshRuntimeStatus();
   }
 
@@ -323,13 +405,23 @@ export class CompareChatRuntime<
     source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
     controller: AbortController,
     context: ChatSourceRunContext<TSourceMetadata>,
+    messageReader: MessageReader<TMessage>,
+    messageIndex?: BranchMessageIndex<TMessage>,
     messageStore?: MessageStore<TMessage>,
   ) {
+    const unsubscribeMessageReader = messageIndex
+      ? messageReader.subscribe(() => {
+          messageIndex.syncFromMessages(messageReader.getMessages());
+        })
+      : undefined;
+
     this.activeRuns.set(branchId, {
       source,
       context,
       controller,
       messageStore,
+      messageIndex,
+      unsubscribeMessageReader,
     });
 
     void this.consumeSource(input, branchId, source, context, messageStore);
@@ -386,9 +478,45 @@ export class CompareChatRuntime<
         });
       }
     } finally {
+      const activeRun = this.activeRuns.get(branchId);
+      const sourceMessages = sourceConfig.source.messageReader?.getMessages();
+      if (activeRun?.messageIndex && sourceMessages) {
+        activeRun.messageIndex.syncFromMessages(sourceMessages);
+      }
+      activeRun?.unsubscribeMessageReader?.();
       this.activeRuns.delete(branchId);
       this.refreshRuntimeStatus();
     }
+  }
+
+  private deleteTurnMessages(
+    turn: ChatTurn<TMessage, TTurnMetadata>,
+    options: {
+      includeInput: boolean;
+    },
+  ) {
+    turn.branchIds.forEach((branchId) => {
+      const branch = this.snapshot.branchesById[branchId];
+      const source = this.branchSourcesById.get(branchId);
+      const messageIndex = this.branchIndexesById.get(branchId);
+      const messageIds =
+        messageIndex?.getMessageIds({
+          includeInput: options.includeInput,
+        }) ?? new Set<string>();
+
+      if (branch && source && messageIds.size > 0) {
+        void source.source.deleteMessages?.([...messageIds], {
+          threadId: this.snapshot.threadId,
+          turnId: turn.id,
+          branchId,
+          sourceId: branch.sourceId ?? source.sourceId ?? source.source.id,
+        });
+      }
+
+      if (branch && isMessageStore<TMessage>(branch.messageReader)) {
+        branch.messageReader.setMessages([]);
+      }
+    });
   }
 
   private updateBranch(
@@ -446,4 +574,72 @@ function isMessageStore<TMessage extends Message>(
     "appendMessage" in reader &&
     "setMessages" in reader
   );
+}
+
+class BranchMessageIndex<TMessage extends Message> {
+  private readonly baselineMessageIds: ReadonlySet<string>;
+  private readonly inputMessageIds = new Set<string>();
+  private readonly messageIds = new Set<string>();
+
+  constructor(
+    initialMessages: readonly TMessage[],
+    inputMessageIds: readonly string[],
+  ) {
+    this.baselineMessageIds = new Set(
+      initialMessages.map((message) => message.id),
+    );
+    inputMessageIds.forEach((messageId) => {
+      this.inputMessageIds.add(messageId);
+    });
+  }
+
+  syncFromMessages(messages: readonly TMessage[]) {
+    messages.forEach((message) => {
+      if (
+        this.baselineMessageIds.has(message.id) ||
+        this.inputMessageIds.has(message.id)
+      ) {
+        return;
+      }
+
+      this.messageIds.add(message.id);
+    });
+  }
+
+  select(messages: readonly TMessage[]) {
+    return messages.filter((message) => this.messageIds.has(message.id));
+  }
+
+  getMessageIds({
+    includeInput,
+  }: {
+    includeInput: boolean;
+  }) {
+    const messageIds = new Set(this.messageIds);
+
+    if (includeInput) {
+      this.inputMessageIds.forEach((messageId) => {
+        messageIds.add(messageId);
+      });
+    }
+
+    return messageIds;
+  }
+}
+
+function createBranchSelector<TMessage extends Message>(
+  messageIndex: BranchMessageIndex<TMessage> | undefined,
+  sourceSelector: BranchMessageSelector<TMessage> | undefined,
+): BranchMessageSelector<TMessage> | undefined {
+  if (!messageIndex) {
+    return sourceSelector;
+  }
+
+  return (messages, context) => {
+    const indexedMessages = messageIndex.select(messages);
+
+    return sourceSelector
+      ? sourceSelector(indexedMessages, context)
+      : indexedMessages;
+  };
 }

@@ -1,8 +1,8 @@
 import type { Message } from "@ag-ui/client";
 import { SocketAdapterAgent, WebSocketBackendTransport } from "./adapters/socketAdapter";
-import { AgUiAgentSource } from "./source/AgUiAgentSource";
-import { CompareChatRuntime } from "../../core/runtime/CompareChatRuntime";
-import { SingleAgentRuntime } from "../../core/runtime/SingleAgentRuntime";
+import { createAgUiAgentSource } from "../source/AgUiAgentSource";
+import { CompareChatRuntime } from "../../core";
+import { SingleAgentRuntime } from "../../core";
 import { StaticAnswerSource } from "./source/StaticAnswerSource";
 
 export type DemoMessage = Message & {
@@ -68,10 +68,20 @@ export interface BeComparisonRuntimeOptions {
   threadId?: string;
 }
 
+export interface DemoRuntimeController<
+  TRuntime extends CompareChatRuntime<string, Message> = CompareChatRuntime<
+    string,
+    Message
+  >,
+> {
+  runtime: TRuntime;
+  deleteLastTurn(): void;
+}
+
 export function createBeComparisonRuntime({
   websocketUrl = "ws://localhost:8080/ws/copilot",
   threadId = "ab-chat",
-}: BeComparisonRuntimeOptions = {}) {
+}: BeComparisonRuntimeOptions = {}): DemoRuntimeController {
   const agentA = createSocketAgent({
     websocketUrl,
     agentId: "agent-a",
@@ -84,8 +94,18 @@ export function createBeComparisonRuntime({
     description: "Agent B",
     threadId: `${threadId}:agent-b`,
   });
+  const sourceA = createAgUiAgentSource({
+    id: "agent-a",
+    label: "Agent A",
+    agent: agentA,
+  });
+  const sourceB = createAgUiAgentSource({
+    id: "agent-b",
+    label: "Agent B",
+    agent: agentB,
+  });
 
-  return new CompareChatRuntime<string, Message>({
+  const runtime = new CompareChatRuntime<string, Message>({
     threadId,
     createInputMessage: (input, turnId) => ({
       id: `${turnId}:input`,
@@ -99,11 +119,7 @@ export function createBeComparisonRuntime({
         metadata: {
           agent: agentA,
         },
-        source: new AgUiAgentSource({
-          id: "agent-a",
-          label: "Agent A",
-          agent: agentA,
-        }),
+        source: sourceA,
       },
       {
         branchId: "agent-b",
@@ -111,14 +127,17 @@ export function createBeComparisonRuntime({
         metadata: {
           agent: agentB,
         },
-        source: new AgUiAgentSource({
-          id: "agent-b",
-          label: "Agent B",
-          agent: agentB,
-        }),
+        source: sourceB,
       },
     ],
   });
+
+  return {
+    runtime,
+    deleteLastTurn: () => {
+      deleteLastTurn(runtime);
+    },
+  };
 }
 
 export interface BeSingleRuntimeOptions {
@@ -129,15 +148,22 @@ export interface BeSingleRuntimeOptions {
 export function createBeSingleRuntime({
   websocketUrl = "ws://localhost:8080/ws/copilot",
   threadId = "single-chat",
-}: BeSingleRuntimeOptions = {}) {
+}: BeSingleRuntimeOptions = {}): DemoRuntimeController<
+  SingleAgentRuntime<string, Message>
+> {
   const agent = createSocketAgent({
     websocketUrl,
     agentId: "agent-single",
     description: "Single Agent",
     threadId,
   });
+  const source = createAgUiAgentSource({
+    id: "agent-single",
+    label: "Single Agent",
+    agent,
+  });
 
-  return new SingleAgentRuntime<string, Message>({
+  const runtime = new SingleAgentRuntime<string, Message>({
     threadId,
     branchId: "agent-single",
     branchLabel: "Single Agent",
@@ -149,11 +175,29 @@ export function createBeSingleRuntime({
       role: "user",
       content: input,
     }),
-    source: new AgUiAgentSource({
-      id: "agent-single",
-      label: "Single Agent",
-      agent,
-    }),
+    source,
+  });
+
+  return {
+    runtime,
+    deleteLastTurn: () => {
+      deleteLastTurn(runtime);
+    },
+  };
+}
+
+function deleteLastTurn(
+  runtime: CompareChatRuntime<string, Message>,
+) {
+  const snapshot = runtime.getSnapshot();
+  const turnId = snapshot.turnIds.at(-1);
+  if (!turnId) {
+    return;
+  }
+
+  runtime.removeTurn(turnId, {
+    deleteMessages: true,
+    includeInput: true,
   });
 }
 

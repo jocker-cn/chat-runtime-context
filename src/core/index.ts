@@ -31,6 +31,7 @@ export {
 export type {
   ChatInputMessageFactory,
   CompareChatRuntimeOptions,
+  RemoveChatTurnOptions,
 } from "./runtime/CompareChatRuntime";
 export {
   SingleAgentRuntime,
@@ -44,6 +45,7 @@ export type {
   AnswerSourceConfig,
   ChatSourceEvent,
   ChatSourceRunContext,
+  DeleteSourceMessagesContext,
 } from "./source/answer-source";
 export {
   createMessageStore,

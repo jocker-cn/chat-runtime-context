@@ -17,6 +17,13 @@ export interface ChatSourceRunContext<
   metadata?: TMetadata;
 }
 
+export interface DeleteSourceMessagesContext {
+  threadId?: string;
+  turnId: string;
+  branchId: string;
+  sourceId: string;
+}
+
 export type ChatSourceEvent<TMessage extends Message = Message> =
   | {
       type: "branch-started";
@@ -53,6 +60,11 @@ export interface AnswerSource<
   ): AsyncIterable<ChatSourceEvent<TMessage>>;
 
   cancel?(context: ChatSourceRunContext<TMetadata>): Promise<void> | void;
+
+  deleteMessages?(
+    messageIds: readonly string[],
+    context: DeleteSourceMessagesContext,
+  ): Promise<void> | void;
 
   dispose?(): Promise<void> | void;
 }

@@ -1,32 +1,34 @@
 import { useMemo, useState } from "react";
-import { ChatRuntimeView } from "./core/view/ChatRuntimeView";
-import { createChatExtensionStore } from "./core/extensions/ChatExtensionStore";
+import { ChatRuntimeView } from "./core";
+import { createChatExtensionStore } from "./core";
 import {
   createBeComparisonRuntime,
   createBeSingleRuntime,
 } from "./chat/demo/demoRuntime";
 import { demoRenderer } from "./chat/demo/demoRenderer";
-import type { FrameCardProps } from "./core/frame/createFrameRenderer";
+import type { FrameCardProps } from "./core";
 import type { DemoMessage } from "./chat/demo/demoRuntime";
 import styles from "./App.module.css";
 
 export function App() {
   const websocketUrl =
     import.meta.env.VITE_COPILOT_WS_URL ?? "ws://localhost:8080/ws/copilot";
-  const compareRuntime = useMemo(
+  const compareDemo = useMemo(
     () =>
       createBeComparisonRuntime({
         websocketUrl,
       }),
     [websocketUrl],
   );
-  const singleRuntime = useMemo(
+  const singleDemo = useMemo(
     () =>
       createBeSingleRuntime({
         websocketUrl,
       }),
     [websocketUrl],
   );
+  const compareRuntime = compareDemo.runtime;
+  const singleRuntime = singleDemo.runtime;
   const compareExtensions = useMemo(() => createChatExtensionStore(), []);
   const singleExtensions = useMemo(() => createChatExtensionStore(), []);
   const [compareInput, setCompareInput] = useState("帮我总结一下当前发布风险。");
@@ -69,6 +71,13 @@ export function App() {
           <button type="button" onClick={sendCompare}>
             Send
           </button>
+          <button
+            className="secondary"
+            type="button"
+            onClick={compareDemo.deleteLastTurn}
+          >
+            Delete last turn
+          </button>
         </div>
         <ChatRuntimeView
           runtime={compareRuntime}
@@ -102,6 +111,13 @@ export function App() {
           />
           <button type="button" onClick={sendSingle}>
             Send
+          </button>
+          <button
+            className="secondary"
+            type="button"
+            onClick={singleDemo.deleteLastTurn}
+          >
+            Delete last turn
           </button>
         </div>
         <ChatRuntimeView
