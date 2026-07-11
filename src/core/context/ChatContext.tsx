@@ -13,6 +13,7 @@ import type {
   ChatBranchSelectionInput,
   BranchMessageSelector,
   ChatMetadata,
+  ChatMode,
   MessageReader,
   ChatRuntime,
   ChatRuntimeSnapshot,
@@ -232,25 +233,117 @@ export function useChatBranch<
 export function useBranchMessages<
   TMessage extends Message = Message,
 >(branchId: string): readonly TMessage[] {
-  const branch = useChatBranch<TMessage>(branchId);
-  const threadId = useChatSelector((snapshot) => snapshot.threadId);
+  return useBranchRenderState<TMessage>(branchId).messages;
+}
+
+export interface BranchRenderState<
+  TMessage extends Message = Message,
+  TMetadata extends ChatMetadata = ChatMetadata,
+> {
+  branch?: ChatBranch<TMessage, TMetadata>;
+  messages: readonly TMessage[];
+  mode: ChatMode;
+  selectedBranchId?: string;
+  threadId?: string;
+}
+
+interface BranchRuntimeState<
+  TMessage extends Message,
+  TMetadata extends ChatMetadata,
+> {
+  branch?: ChatBranch<TMessage, TMetadata>;
+  mode: ChatMode;
+  selectedBranchId?: string;
+  threadId?: string;
+}
+
+export function useBranchRenderState<
+  TMessage extends Message = Message,
+  TMetadata extends ChatMetadata = ChatMetadata,
+>(branchId: string): BranchRenderState<TMessage, TMetadata> {
+  const runtimeState = useChatSelector<
+    BranchRuntimeState<TMessage, TMetadata>,
+    unknown,
+    TMessage,
+    ChatMetadata,
+    TMetadata
+  >(
+    (snapshot) => {
+      const branch = snapshot.branchesById[branchId] as unknown as
+        | ChatBranch<TMessage, TMetadata>
+        | undefined;
+
+      return {
+        branch,
+        mode: snapshot.mode,
+        selectedBranchId: branch
+          ? snapshot.turnsById[branch.turnId]?.selectedBranchId
+          : undefined,
+        threadId: snapshot.threadId,
+      };
+    },
+    areBranchRuntimeStatesEqual,
+  );
+  const { branch, threadId } = runtimeState;
   const reader =
     branch?.messageReader ?? (emptyMessageReader as MessageReader<TMessage>);
-
-  return useSyncExternalStoreWithSelector(
-    (listener) => reader.subscribe(listener),
-    () => reader.getMessages(),
-    () => reader.getMessages(),
-    (messages) =>
+  const subscribe = useCallback(
+    (listener: () => void) => reader.subscribe(listener),
+    [reader],
+  );
+  const getMessages = useCallback(() => reader.getMessages(), [reader]);
+  const selectMessages = useCallback(
+    (messages: readonly TMessage[]) =>
       branch
-        ? selectBranchMessages(messages, {
-            threadId,
-            turnId: branch.turnId,
-            branchId: branch.id,
-            anchorMessageId: branch.anchorMessageId,
-          }, branch.selectMessages)
+        ? selectBranchMessages(
+            messages,
+            {
+              threadId,
+              turnId: branch.turnId,
+              branchId: branch.id,
+              anchorMessageId: branch.anchorMessageId,
+            },
+            branch.selectMessages,
+          )
         : (emptyMessages as readonly TMessage[]),
+    [
+      branch?.anchorMessageId,
+      branch?.id,
+      branch?.selectMessages,
+      branch?.turnId,
+      threadId,
+    ],
+  );
+
+  const messages = useSyncExternalStoreWithSelector(
+    subscribe,
+    getMessages,
+    getMessages,
+    selectMessages,
     areMessageListsEqual,
+  );
+
+  return useMemo(
+    () => ({
+      ...runtimeState,
+      messages,
+    }),
+    [messages, runtimeState],
+  );
+}
+
+function areBranchRuntimeStatesEqual<
+  TMessage extends Message,
+  TMetadata extends ChatMetadata,
+>(
+  previous: BranchRuntimeState<TMessage, TMetadata>,
+  next: BranchRuntimeState<TMessage, TMetadata>,
+) {
+  return (
+    previous.branch === next.branch &&
+    previous.mode === next.mode &&
+    previous.selectedBranchId === next.selectedBranchId &&
+    previous.threadId === next.threadId
   );
 }
 

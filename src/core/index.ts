@@ -140,10 +140,11 @@ export type {
 } from "./frame/FrameSlot";
 export {
   InnerFocusManager,
-} from "./frame/InnerFocusManager";
+  setInnerFocusableTabIndex,
+} from "./react/accessibility/InnerFocusManager";
 export type {
   InnerFocusManagerProps,
-} from "./frame/InnerFocusManager";
+} from "./react/accessibility/InnerFocusManager";
 export {
   groupAdjacentMessages,
   resolveMessagePairId,
@@ -155,11 +156,11 @@ export type {
 } from "./frame/types";
 export {
   useFrameListAccessibility,
-} from "./frame/useFrameListAccessibility";
+} from "./react/accessibility/useFrameListAccessibility";
 export type {
   FrameListAccessibilityApi,
   FrameListAccessibilityOptions,
-} from "./frame/useFrameListAccessibility";
+} from "./react/accessibility/useFrameListAccessibility";
 
 export {
   BranchView,

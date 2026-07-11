@@ -1,8 +1,9 @@
 import type { Message } from "@ag-ui/client";
-import { useBranchMessages, useChatBranch } from "../context/ChatContext";
-import { FrameList } from "../frame/FrameList";
+import { memo } from "react";
+import { useBranchRenderState } from "../context/ChatContext";
+import { FrameListView } from "../frame/FrameList";
 import type { FrameRenderer } from "../frame/createFrameRenderer";
-import type { FrameListAccessibilityOptions } from "../frame/useFrameListAccessibility";
+import type { FrameListAccessibilityOptions } from "../react/accessibility/useFrameListAccessibility";
 
 export interface BranchViewProps<TMessage extends Message = Message> {
   branchId: string;
@@ -15,7 +16,7 @@ export interface BranchViewProps<TMessage extends Message = Message> {
   accessibility?: FrameListAccessibilityOptions;
 }
 
-export function BranchView<TMessage extends Message = Message>({
+function BranchViewComponent<TMessage extends Message = Message>({
   branchId,
   branchIndex,
   renderer,
@@ -25,8 +26,8 @@ export function BranchView<TMessage extends Message = Message>({
   slotClassName,
   accessibility,
 }: BranchViewProps<TMessage>) {
-  const branch = useChatBranch<TMessage>(branchId);
-  const messages = useBranchMessages<TMessage>(branchId);
+  const state = useBranchRenderState<TMessage>(branchId);
+  const { branch, messages } = state;
 
   if (!branch || messages.length === 0) {
     return null;
@@ -38,7 +39,7 @@ export function BranchView<TMessage extends Message = Message>({
       data-branch-id={branch.id}
       data-source-id={branch.sourceId}
     >
-      <FrameList
+      <FrameListView
         branchId={branch.id}
         branchIndex={branchIndex}
         renderer={renderer}
@@ -46,7 +47,12 @@ export function BranchView<TMessage extends Message = Message>({
         frameClassName={frameClassName}
         slotClassName={slotClassName}
         accessibility={accessibility}
+        state={state}
       />
     </section>
   );
 }
+
+export const BranchView = memo(
+  BranchViewComponent,
+) as typeof BranchViewComponent;

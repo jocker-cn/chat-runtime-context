@@ -1,11 +1,11 @@
 import type { Message } from "@ag-ui/client";
 import type {
-  BranchMessageSelector,
   ChatBranch,
   ChatBranchSelectionInput,
   ChatMetadata,
   ChatRunHandle,
   ChatRunOptions,
+  ChatRuntimeResetOptions,
   ChatTurn,
   MessageReader,
 } from "../contracts/chat-runtime";
@@ -16,6 +16,8 @@ import type {
 import type { MessageStore } from "../source/message-store";
 import { createMessageStore } from "../source/message-store";
 import { BaseChatRuntime, createInitialChatRuntimeSnapshot } from "./BaseChatRuntime";
+import type { BranchMessageScope } from "./BranchMessageHub";
+import { BranchMessageHub } from "./BranchMessageHub";
 
 export type ChatInputMessageFactory<
   TInput,
@@ -78,8 +80,7 @@ interface ActiveBranchRun<
   context: ChatSourceRunContext<TSourceMetadata>;
   controller: AbortController;
   messageStore?: MessageStore<TMessage>;
-  messageIndex?: BranchMessageIndex<TMessage>;
-  unsubscribeMessageReader?: () => void;
+  messageScope?: BranchMessageScope<TMessage>;
 }
 
 export interface RemoveChatTurnOptions {
@@ -120,13 +121,17 @@ export class CompareChatRuntime<
     string,
     ActiveBranchRun<TInput, TMessage, TSourceMetadata>
   >();
-  private readonly branchIndexesById = new Map<
+  private readonly branchMessageScopesById = new Map<
     string,
-    BranchMessageIndex<TMessage>
+    BranchMessageScope<TMessage>
   >();
   private readonly branchSourcesById = new Map<
     string,
     AnswerSourceConfig<TInput, TMessage, TSourceMetadata>
+  >();
+  private readonly messageHubs = new Map<
+    MessageReader<TMessage>,
+    BranchMessageHub<TMessage>
   >();
 
   constructor(
@@ -200,26 +205,34 @@ export class CompareChatRuntime<
         metadata: entry.source.metadata,
       };
       const sourceMessageReader = entry.source.source.messageReader;
-      const messageReader =
-        sourceMessageReader ?? createMessageStore<TMessage>();
-      const messageIndex = sourceMessageReader
-        ? new BranchMessageIndex<TMessage>(
-            messageReader.getMessages(),
-            inputMessage ? [inputMessage.id] : [],
-          )
+      const messageStore = sourceMessageReader
+        ? undefined
+        : createMessageStore<TMessage>();
+      const messageScope = sourceMessageReader
+        ? this.getMessageHub(sourceMessageReader).createScope({
+            id: entry.branchId,
+            context: {
+              threadId: this.snapshot.threadId,
+              turnId,
+              branchId: entry.branchId,
+              anchorMessageId: inputMessage?.id,
+            },
+            selector: entry.source.source.selectMessages,
+            baselineMessages: sourceMessageReader.getMessages(),
+            inputMessageIds: inputMessage ? [inputMessage.id] : [],
+            trackNewMessages: true,
+          })
         : undefined;
+      const messageReader = messageScope ?? messageStore!;
 
       return {
         ...entry,
         messageReader,
-        messageStore: isMessageStore<TMessage>(messageReader)
-          ? messageReader
-          : undefined,
-        messageIndex,
-        selectMessages: createBranchSelector(
-          messageIndex,
-          entry.source.source.selectMessages,
-        ),
+        messageStore,
+        messageScope,
+        selectMessages: messageScope
+          ? undefined
+          : entry.source.source.selectMessages,
         controller,
         context,
       };
@@ -251,10 +264,10 @@ export class CompareChatRuntime<
       ]),
     );
 
-    branchRunEntries.forEach(({ branchId, source, messageIndex }) => {
+    branchRunEntries.forEach(({ branchId, source, messageScope }) => {
       this.branchSourcesById.set(branchId, source);
-      if (messageIndex) {
-        this.branchIndexesById.set(branchId, messageIndex);
+      if (messageScope) {
+        this.branchMessageScopesById.set(branchId, messageScope);
       }
     });
 
@@ -279,8 +292,7 @@ export class CompareChatRuntime<
       messageStore,
       controller,
       context,
-      messageReader,
-      messageIndex,
+      messageScope,
     }) => {
       this.startBranchRun(
         input,
@@ -288,9 +300,8 @@ export class CompareChatRuntime<
         source,
         controller,
         context,
-        messageReader,
-        messageIndex,
         messageStore,
+        messageScope,
       );
     });
 
@@ -314,7 +325,7 @@ export class CompareChatRuntime<
 
     runs.forEach(([branchId, run]) => {
       run.controller.abort();
-      run.unsubscribeMessageReader?.();
+      run.messageScope?.stopTracking();
       void run.source.source.cancel?.(run.context);
       this.activeRuns.delete(branchId);
       this.updateBranch(branchId, {
@@ -350,7 +361,8 @@ export class CompareChatRuntime<
     delete turnsById[turnId];
     turn.branchIds.forEach((branchId) => {
       delete branchesById[branchId];
-      this.branchIndexesById.delete(branchId);
+      this.branchMessageScopesById.get(branchId)?.dispose();
+      this.branchMessageScopesById.delete(branchId);
       this.branchSourcesById.delete(branchId);
     });
 
@@ -405,11 +417,24 @@ export class CompareChatRuntime<
       this.cancel({ branchId });
     });
 
+    this.branchMessageScopesById.forEach((scope) => scope.dispose());
+    this.branchMessageScopesById.clear();
+    this.messageHubs.forEach((hub) => hub.dispose());
+    this.messageHubs.clear();
+
     this.sources.forEach(({ source }) => {
       void source.dispose?.();
     });
 
     super.dispose();
+  }
+
+  public override reset(options: ChatRuntimeResetOptions = {}): void {
+    this.cancel();
+    this.branchMessageScopesById.forEach((scope) => scope.dispose());
+    this.branchMessageScopesById.clear();
+    this.branchSourcesById.clear();
+    super.reset(options);
   }
 
   private resolveSourceEntries(branchIds?: readonly string[]) {
@@ -456,19 +481,32 @@ export class CompareChatRuntime<
       );
       const inputMessageId =
         historyTurn.inputMessage?.id ?? historyTurn.inputMessageId;
+      const sourceMessageReader = sourceEntry.source.source.messageReader;
+      const messageScope = sourceMessageReader
+        ? this.getMessageHub(sourceMessageReader).createScope({
+            id: branchId,
+            context: {
+              threadId: this.snapshot.threadId,
+              turnId: historyTurn.id,
+              branchId,
+              anchorMessageId: inputMessageId,
+            },
+            selector: sourceEntry.source.source.selectMessages,
+            inputMessageIds: inputMessageId ? [inputMessageId] : [],
+            messageIds: historyTurn.messageIds,
+          })
+        : undefined;
       const messageReader =
-        sourceEntry.source.source.messageReader ?? createMessageStore<TMessage>();
-      const messageIndex = BranchMessageIndex.fromMessageIds<TMessage>(
-        historyTurn.messageIds,
-        inputMessageId ? [inputMessageId] : [],
-      );
+        messageScope ?? createMessageStore<TMessage>();
       const sourceId =
         sourceEntry.source.sourceId ??
         sourceEntry.source.source.id ??
         sourceEntry.sourceBranchId;
 
       this.branchSourcesById.set(branchId, sourceEntry.source);
-      this.branchIndexesById.set(branchId, messageIndex);
+      if (messageScope) {
+        this.branchMessageScopesById.set(branchId, messageScope);
+      }
       turnIds.push(historyTurn.id);
       turnsById[historyTurn.id] = {
         id: historyTurn.id,
@@ -496,10 +534,9 @@ export class CompareChatRuntime<
         sourceId,
         anchorMessageId: inputMessageId,
         messageReader,
-        selectMessages: createBranchSelector(
-          messageIndex,
-          sourceEntry.source.source.selectMessages,
-        ),
+        selectMessages: messageScope
+          ? undefined
+          : sourceEntry.source.source.selectMessages,
         status: "completed",
         metadata:
           historyTurn.branchMetadata ??
@@ -521,23 +558,15 @@ export class CompareChatRuntime<
     source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
     controller: AbortController,
     context: ChatSourceRunContext<TSourceMetadata>,
-    messageReader: MessageReader<TMessage>,
-    messageIndex?: BranchMessageIndex<TMessage>,
     messageStore?: MessageStore<TMessage>,
+    messageScope?: BranchMessageScope<TMessage>,
   ) {
-    const unsubscribeMessageReader = messageIndex
-      ? messageReader.subscribe(() => {
-          messageIndex.syncFromMessages(messageReader.getMessages());
-        })
-      : undefined;
-
     this.activeRuns.set(branchId, {
       source,
       context,
       controller,
       messageStore,
-      messageIndex,
-      unsubscribeMessageReader,
+      messageScope,
     });
 
     void this.consumeSource(input, branchId, source, context, messageStore);
@@ -595,13 +624,11 @@ export class CompareChatRuntime<
       }
     } finally {
       const activeRun = this.activeRuns.get(branchId);
-      const sourceMessages = sourceConfig.source.messageReader?.getMessages();
-      if (activeRun?.messageIndex && sourceMessages) {
-        activeRun.messageIndex.syncFromMessages(sourceMessages);
+      if (activeRun) {
+        activeRun.messageScope?.stopTracking();
+        this.activeRuns.delete(branchId);
+        this.refreshRuntimeStatus();
       }
-      activeRun?.unsubscribeMessageReader?.();
-      this.activeRuns.delete(branchId);
-      this.refreshRuntimeStatus();
     }
   }
 
@@ -614,9 +641,9 @@ export class CompareChatRuntime<
     turn.branchIds.forEach((branchId) => {
       const branch = this.snapshot.branchesById[branchId];
       const source = this.branchSourcesById.get(branchId);
-      const messageIndex = this.branchIndexesById.get(branchId);
+      const messageScope = this.branchMessageScopesById.get(branchId);
       const messageIds =
-        messageIndex?.getMessageIds({
+        messageScope?.getMessageIds({
           includeInput: options.includeInput,
         }) ?? new Set<string>();
 
@@ -635,12 +662,30 @@ export class CompareChatRuntime<
     });
   }
 
+  private getMessageHub(messageReader: MessageReader<TMessage>) {
+    const existingHub = this.messageHubs.get(messageReader);
+    if (existingHub) {
+      return existingHub;
+    }
+
+    const hub = new BranchMessageHub(messageReader);
+    this.messageHubs.set(messageReader, hub);
+    return hub;
+  }
+
   private updateBranch(
     branchId: string,
     patch: Partial<ChatBranch<TMessage, TBranchMetadata>>,
   ) {
     const branch = this.snapshot.branchesById[branchId];
     if (!branch) return;
+
+    const patchKeys = Object.keys(patch) as Array<
+      keyof ChatBranch<TMessage, TBranchMetadata>
+    >;
+    if (patchKeys.every((key) => Object.is(branch[key], patch[key]))) {
+      return;
+    }
 
     this.patchSnapshot({
       branchesById: {
@@ -654,11 +699,19 @@ export class CompareChatRuntime<
   }
 
   private refreshRuntimeStatus() {
-    const branches = Object.values(this.snapshot.branchesById);
-    const hasRunningBranch = branches.some(
-      (branch) => branch.status === "running" || branch.status === "idle",
+    const activeTurnId = this.snapshot.activeTurnId;
+    const activeTurn = activeTurnId
+      ? this.snapshot.turnsById[activeTurnId]
+      : undefined;
+    const activeTurnBranches = activeTurn?.branchIds
+      .map((branchId) => this.snapshot.branchesById[branchId])
+      .filter((branch): branch is ChatBranch<TMessage, TBranchMetadata> =>
+        Boolean(branch),
+      ) ?? [];
+    const hasRunningBranch = this.activeRuns.size > 0;
+    const hasError = activeTurnBranches.some(
+      (branch) => branch.status === "error",
     );
-    const hasError = branches.some((branch) => branch.status === "error");
 
     this.patchSnapshot({
       status: hasRunningBranch ? "running" : hasError ? "error" : "idle",
@@ -690,84 +743,4 @@ function isMessageStore<TMessage extends Message>(
     "appendMessage" in reader &&
     "setMessages" in reader
   );
-}
-
-class BranchMessageIndex<TMessage extends Message> {
-  private readonly baselineMessageIds: ReadonlySet<string>;
-  private readonly inputMessageIds = new Set<string>();
-  private readonly messageIds = new Set<string>();
-
-  static fromMessageIds<TMessage extends Message>(
-    messageIds: readonly string[],
-    inputMessageIds: readonly string[],
-  ) {
-    const index = new BranchMessageIndex<TMessage>([], inputMessageIds);
-    messageIds.forEach((messageId) => {
-      index.messageIds.add(messageId);
-    });
-
-    return index;
-  }
-
-  constructor(
-    initialMessages: readonly TMessage[],
-    inputMessageIds: readonly string[],
-  ) {
-    this.baselineMessageIds = new Set(
-      initialMessages.map((message) => message.id),
-    );
-    inputMessageIds.forEach((messageId) => {
-      this.inputMessageIds.add(messageId);
-    });
-  }
-
-  syncFromMessages(messages: readonly TMessage[]) {
-    messages.forEach((message) => {
-      if (
-        this.baselineMessageIds.has(message.id) ||
-        this.inputMessageIds.has(message.id)
-      ) {
-        return;
-      }
-
-      this.messageIds.add(message.id);
-    });
-  }
-
-  select(messages: readonly TMessage[]) {
-    return messages.filter((message) => this.messageIds.has(message.id));
-  }
-
-  getMessageIds({
-    includeInput,
-  }: {
-    includeInput: boolean;
-  }) {
-    const messageIds = new Set(this.messageIds);
-
-    if (includeInput) {
-      this.inputMessageIds.forEach((messageId) => {
-        messageIds.add(messageId);
-      });
-    }
-
-    return messageIds;
-  }
-}
-
-function createBranchSelector<TMessage extends Message>(
-  messageIndex: BranchMessageIndex<TMessage> | undefined,
-  sourceSelector: BranchMessageSelector<TMessage> | undefined,
-): BranchMessageSelector<TMessage> | undefined {
-  if (!messageIndex) {
-    return sourceSelector;
-  }
-
-  return (messages, context) => {
-    const indexedMessages = messageIndex.select(messages);
-
-    return sourceSelector
-      ? sourceSelector(indexedMessages, context)
-      : indexedMessages;
-  };
 }

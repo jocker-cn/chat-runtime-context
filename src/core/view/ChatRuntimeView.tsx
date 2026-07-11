@@ -1,7 +1,9 @@
 import type { Message } from "@ag-ui/client";
 import type React from "react";
-import { ChatProvider, useChatStatus, useChatTurnIds } from "../context/ChatContext";
+import { useMemo } from "react";
+import { ChatProvider, useChatSelector } from "../context/ChatContext";
 import type { ChatRuntime } from "../contracts/chat-runtime";
+import type { ChatRuntimeStatus } from "../contracts/chat-runtime";
 import type { ChatExtensionStore } from "../extensions/ChatExtensionStore";
 import { createChatExtensionStore } from "../extensions/ChatExtensionStore";
 import type { FrameRenderer } from "../frame/createFrameRenderer";
@@ -29,6 +31,7 @@ export interface ChatRuntimeViewProps<
   slotClassName?: string;
   showOnlySelectedBranch?: boolean;
   empty?: React.ReactNode;
+  loadingIndicator?: React.ReactNode;
 }
 
 export interface ChatRuntimeClassNames {
@@ -53,8 +56,6 @@ export const chatRuntimeClassNames: ChatRuntimeClassNames = {
   slot: "crt-frame-slot",
 };
 
-const defaultExtensions = createChatExtensionStore();
-
 export function ChatRuntimeView<
   TInput = unknown,
   TMessage extends Message = Message,
@@ -63,7 +64,7 @@ export function ChatRuntimeView<
   runtime,
   renderer,
   renderInput,
-  extensions = defaultExtensions as TExtensions,
+  extensions,
   classNames,
   unstyled = false,
   className,
@@ -76,7 +77,14 @@ export function ChatRuntimeView<
   slotClassName,
   showOnlySelectedBranch,
   empty = null,
+  loadingIndicator = null,
 }: ChatRuntimeViewProps<TInput, TMessage, TExtensions>) {
+  const internalExtensions = useMemo(
+    () => createChatExtensionStore(),
+    [],
+  );
+  const resolvedExtensions =
+    extensions ?? (internalExtensions as TExtensions);
   const resolvedClassNames = resolveClassNames({
     classNames,
     unstyled,
@@ -91,7 +99,7 @@ export function ChatRuntimeView<
   });
 
   return (
-    <ChatProvider runtime={runtime} extensions={extensions}>
+    <ChatProvider runtime={runtime} extensions={resolvedExtensions}>
       <ChatRuntimeContent
         renderer={renderer}
         renderInput={renderInput}
@@ -105,6 +113,7 @@ export function ChatRuntimeView<
         slotClassName={resolvedClassNames.slot}
         showOnlySelectedBranch={showOnlySelectedBranch}
         empty={empty}
+        loadingIndicator={loadingIndicator}
       />
     </ChatProvider>
   );
@@ -123,12 +132,18 @@ function ChatRuntimeContent<TMessage extends Message>({
   slotClassName,
   showOnlySelectedBranch,
   empty,
+  loadingIndicator,
 }: Omit<
   ChatRuntimeViewProps<unknown, TMessage>,
   "runtime" | "extensions"
 >) {
-  const status = useChatStatus();
-  const turnIds = useChatTurnIds();
+  const { status, turnIds } = useChatSelector(
+    (snapshot) => ({
+      status: snapshot.status,
+      turnIds: snapshot.turnIds,
+    }),
+    areRuntimeViewStatesEqual,
+  );
 
   return (
     <section className={className} data-runtime-status={status}>
@@ -150,8 +165,22 @@ function ChatRuntimeContent<TMessage extends Message>({
               showOnlySelectedBranch={showOnlySelectedBranch}
             />
           ))}
+      {status === "running" ? loadingIndicator : null}
     </section>
   );
+}
+
+function areRuntimeViewStatesEqual(
+  previous: {
+    status: ChatRuntimeStatus;
+    turnIds: readonly string[];
+  },
+  next: {
+    status: ChatRuntimeStatus;
+    turnIds: readonly string[];
+  },
+) {
+  return previous.status === next.status && previous.turnIds === next.turnIds;
 }
 
 function resolveClassNames({

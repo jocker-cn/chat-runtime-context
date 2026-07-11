@@ -1,5 +1,6 @@
 import type { Message } from "@ag-ui/client";
 import type { MessageReader } from "../contracts/chat-runtime";
+import { ListenerSet } from "../internal/ListenerSet";
 
 export interface MessageStore<TMessage extends Message = Message>
   extends MessageReader<TMessage> {
@@ -13,19 +14,15 @@ export function createMessageStore<
   initialMessages: readonly TMessage[] = [],
 ): MessageStore<TMessage> {
   let messages = [...initialMessages];
-  const listeners = new Set<() => void>();
+  const listeners = new ListenerSet();
 
   const notify = () => {
-    listeners.forEach((listener) => listener());
+    listeners.emit();
   };
 
   return {
     subscribe(listener) {
-      listeners.add(listener);
-
-      return () => {
-        listeners.delete(listener);
-      };
+      return listeners.add(listener);
     },
     getMessages() {
       return messages;
@@ -35,8 +32,20 @@ export function createMessageStore<
       notify();
     },
     setMessages(nextMessages) {
+      if (areMessageListsEqual(messages, nextMessages)) return;
+
       messages = [...nextMessages];
       notify();
     },
   };
+}
+
+function areMessageListsEqual<TMessage extends Message>(
+  previous: readonly TMessage[],
+  next: readonly TMessage[],
+) {
+  if (previous === next) return true;
+  if (previous.length !== next.length) return false;
+
+  return previous.every((message, index) => message === next[index]);
 }

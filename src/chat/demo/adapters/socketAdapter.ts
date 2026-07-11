@@ -1,7 +1,17 @@
 import { AbstractAgent } from "@ag-ui/client";
 import { EventType } from "@ag-ui/client";
-import type { BaseEvent, Message, RunAgentInput } from "@ag-ui/client";
+import type {
+  ActivitySnapshotEvent,
+  BaseEvent,
+  Message,
+  RunAgentInput,
+} from "@ag-ui/client";
 import { Observable } from "rxjs";
+import type {
+  ThinkingActivityContent,
+  ThinkingActivityPhase,
+} from "../thinkingActivity";
+import { THINKING_ACTIVITY_TYPE } from "../thinkingActivity";
 
 export type BackendMessage = {
   isCompleted?: boolean;
@@ -220,11 +230,28 @@ export class SocketAdapterAgent extends AbstractAgent {
   run(input: RunAgentInput): Observable<BaseEvent> {
     return new Observable<BaseEvent>((subscriber) => {
       const textMessageIds = new Set<string>();
-      const reasoningMessageIds = new Set<string>();
+      const thinkingMessageId = `thinking:${input.runId}`;
+      let thinkingPhase: ThinkingActivityPhase = "processing";
+      let thinkingText = "";
       let toolCallIndex = 0;
       let hasRunStarted = false;
 
       const emit = (event: BaseEvent) => subscriber.next(event);
+      const emitThinkingSnapshot = () => {
+        const content: ThinkingActivityContent = {
+          phase: thinkingPhase,
+          text: thinkingText,
+        };
+        const event: ActivitySnapshotEvent = {
+          type: EventType.ACTIVITY_SNAPSHOT,
+          messageId: thinkingMessageId,
+          activityType: THINKING_ACTIVITY_TYPE,
+          content,
+          replace: true,
+        };
+
+        emit(event);
+      };
       const ensureRunStarted = () => {
         if (hasRunStarted) return;
         hasRunStarted = true;
@@ -233,7 +260,10 @@ export class SocketAdapterAgent extends AbstractAgent {
           threadId: input.threadId,
           runId: input.runId,
         });
+        emitThinkingSnapshot();
       };
+
+      ensureRunStarted();
 
       const disconnect = this.transport.run(input, {
         onMessage: (message) => {
@@ -244,39 +274,21 @@ export class SocketAdapterAgent extends AbstractAgent {
             case "run_started":
               break;
             case "thinking_started": {
-              reasoningMessageIds.add(messageId);
-              emit({
-                type: EventType.REASONING_START,
-                messageId,
-              });
-              emit({
-                type: EventType.REASONING_MESSAGE_START,
-                messageId,
-                role: "reasoning",
-              });
+              thinkingPhase = "thought";
+              emitThinkingSnapshot();
               break;
             }
-            case "thinking_delta":
-              emit({
-                type: EventType.REASONING_MESSAGE_CONTENT,
-                messageId,
-                delta: message.message?.content ?? "",
-              });
-              break;
-            case "thinking_completed": {
-              if (reasoningMessageIds.delete(messageId)) {
-                emit({
-                  type: EventType.REASONING_MESSAGE_END,
-                  messageId,
-                });
-                emit({
-                  type: EventType.REASONING_END,
-                  messageId,
-                });
-              }
+            case "thinking_delta": {
+              thinkingPhase = "thought";
+              thinkingText += message.message?.content ?? "";
+              emitThinkingSnapshot();
               break;
             }
-            case "streaming_started":
+            case "thinking_completed":
+              break;
+            case "streaming_started": {
+              thinkingPhase = "completed";
+              emitThinkingSnapshot();
               textMessageIds.add(messageId);
               emit({
                 type: EventType.TEXT_MESSAGE_START,
@@ -284,6 +296,7 @@ export class SocketAdapterAgent extends AbstractAgent {
                 role: "assistant",
               });
               break;
+            }
             case "streaming":
               emit({
                 type: EventType.TEXT_MESSAGE_CONTENT,

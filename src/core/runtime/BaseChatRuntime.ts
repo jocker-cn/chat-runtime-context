@@ -10,6 +10,7 @@ import type {
   ChatRuntimeResetOptions,
   ChatRuntimeSnapshot,
 } from "../contracts/chat-runtime";
+import { ListenerSet } from "../internal/ListenerSet";
 
 export interface CreateChatRuntimeSnapshotOptions {
   mode?: ChatMode;
@@ -42,7 +43,7 @@ export abstract class BaseChatRuntime<
   TBranchMetadata extends ChatMetadata = ChatMetadata,
 > implements ChatRuntime<TInput, TMessage, TTurnMetadata, TBranchMetadata>
 {
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new ListenerSet();
   private disposed = false;
 
   protected snapshot: ChatRuntimeSnapshot<
@@ -63,11 +64,7 @@ export abstract class BaseChatRuntime<
 
   public readonly subscribe = (listener: () => void): (() => void) => {
     this.assertNotDisposed();
-    this.listeners.add(listener);
-
-    return () => {
-      this.listeners.delete(listener);
-    };
+    return this.listeners.add(listener);
   };
 
   public readonly getSnapshot = (): ChatRuntimeSnapshot<
@@ -154,6 +151,16 @@ export abstract class BaseChatRuntime<
       ChatRuntimeSnapshot<TMessage, TTurnMetadata, TBranchMetadata>
     >,
   ) {
+    const keys = Object.keys(patch) as Array<
+      keyof ChatRuntimeSnapshot<TMessage, TTurnMetadata, TBranchMetadata>
+    >;
+
+    if (
+      keys.every((key) => Object.is(this.snapshot[key], patch[key]))
+    ) {
+      return;
+    }
+
     this.commitSnapshot({
       ...this.snapshot,
       ...patch,
@@ -167,8 +174,6 @@ export abstract class BaseChatRuntime<
   }
 
   private emit() {
-    for (const listener of this.listeners) {
-      listener();
-    }
+    this.listeners.emit();
   }
 }

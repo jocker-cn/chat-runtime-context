@@ -3,12 +3,23 @@ import { useSelectBranch } from "../../core/context/ChatContext";
 import { createFrameRenderer } from "../../core/frame/createFrameRenderer";
 import type { FrameCardProps } from "../../core/frame/createFrameRenderer";
 import type { DemoMessage } from "./demoRuntime";
+import { ThinkContent } from "./ThinkContent";
+import {
+  isThinkingActivityMessage,
+  type ThinkingActivityPhase,
+} from "./thinkingActivity";
 
 export const demoRenderer = createFrameRenderer<DemoMessage>({
   cards: {
     user: UserMessageCard,
     assistant: AssistantMessageCard,
     reasoning: ReasoningMessageCard,
+    activity: [
+      {
+        condition: isThinkingActivityMessage,
+        card: ThinkingActivityCard,
+      },
+    ],
     tool: ToolMessageCard,
   },
   fallback: FallbackMessageCard,
@@ -16,7 +27,7 @@ export const demoRenderer = createFrameRenderer<DemoMessage>({
 
 function UserMessageCard({ message }: FrameCardProps<DemoMessage>) {
   return (
-    <div className="message-card message-card-user">
+    <div className="message-card message-card-user" tabIndex={0}>
       {messageText(message)}
     </div>
   );
@@ -58,6 +69,32 @@ function ReasoningMessageCard({ message }: FrameCardProps<DemoMessage>) {
       {messageText(message)}
     </div>
   );
+}
+
+function ThinkingActivityCard({ message }: FrameCardProps<DemoMessage>) {
+  if (!isThinkingActivityMessage(message)) {
+    return null;
+  }
+
+  return (
+    <ThinkContent
+      title={thinkingTitle(message.content.phase)}
+      phase={message.content.phase}
+    >
+      {message.content.text}
+    </ThinkContent>
+  );
+}
+
+function thinkingTitle(phase: ThinkingActivityPhase) {
+  switch (phase) {
+    case "processing":
+      return "Processing";
+    case "thought":
+      return "Thought";
+    case "completed":
+      return "How AI Think";
+  }
 }
 
 function ToolMessageCard({ message }: FrameCardProps<DemoMessage>) {

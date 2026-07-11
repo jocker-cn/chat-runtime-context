@@ -7,17 +7,16 @@ export function groupAdjacentMessages<
   messages: readonly TMessage[],
   context: MessageGroupContext,
 ): readonly MessageGroup<TMessage>[] {
-  const groups: MessageGroup<TMessage>[] = [];
+  const groups: Array<Omit<MessageGroup<TMessage>, "items"> & {
+    items: TMessage[];
+  }> = [];
 
   messages.forEach((message, index) => {
-    const pairId = resolveMessagePairId(message, index);
+    const pairId = resolveMessagePairId(message, index, "response");
     const last = groups[groups.length - 1];
 
     if (last?.pairId === pairId) {
-      groups[groups.length - 1] = {
-        ...last,
-        items: [...last.items, message],
-      };
+      last.items.push(message);
       return;
     }
 
@@ -37,13 +36,14 @@ export function groupAdjacentMessages<
 export function resolveMessagePairId(
   message: Message,
   index: number,
+  fallbackPairId?: string,
 ): string {
   const record = message as Record<string, unknown>;
-  const pairId = record.pairId ?? record.message_id ?? message.id;
+  const pairId = record.pairId ?? record.message_id;
 
   return typeof pairId === "string" && pairId.length > 0
     ? pairId
-    : `message-${index}`;
+    : fallbackPairId ?? message.id ?? `message-${index}`;
 }
 
 export function createGroupId(

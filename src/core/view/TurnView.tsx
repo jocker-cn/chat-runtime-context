@@ -1,6 +1,8 @@
 import type { Message } from "@ag-ui/client";
 import type React from "react";
-import { useChatSnapshot, useChatTurn } from "../context/ChatContext";
+import { memo } from "react";
+import { useChatSelector } from "../context/ChatContext";
+import type { ChatMode, ChatTurn } from "../contracts/chat-runtime";
 import type { FrameCardProps, FrameRenderer } from "../frame/createFrameRenderer";
 import type { MessageRenderContext } from "../frame/types";
 import { BranchView } from "./BranchView";
@@ -23,7 +25,7 @@ export interface TurnViewProps<TMessage extends Message = Message> {
   showOnlySelectedBranch?: boolean;
 }
 
-export function TurnView<TMessage extends Message = Message>({
+function TurnViewComponent<TMessage extends Message = Message>({
   turnId,
   renderer,
   renderInput,
@@ -36,15 +38,21 @@ export function TurnView<TMessage extends Message = Message>({
   slotClassName,
   showOnlySelectedBranch = true,
 }: TurnViewProps<TMessage>) {
-  const snapshot = useChatSnapshot<unknown, TMessage>();
-  const turn = useChatTurn<TMessage>(turnId);
+  const { mode, threadId, turn } = useChatSelector(
+    (snapshot) => ({
+      mode: snapshot.mode,
+      threadId: snapshot.threadId,
+      turn: snapshot.turnsById[turnId] as ChatTurn<TMessage> | undefined,
+    }),
+    areTurnRenderStatesEqual,
+  );
 
   if (!turn) {
     return null;
   }
 
   const inputContext: MessageRenderContext = {
-    threadId: snapshot.threadId,
+    threadId,
     turnId,
     branchId: "__input",
     selectedBranchId: turn.selectedBranchId,
@@ -54,7 +62,7 @@ export function TurnView<TMessage extends Message = Message>({
     messageIndex: -1,
     groupIndex: -1,
     branchIndex: -1,
-    mode: snapshot.mode,
+    mode,
   };
   const branchEntries = turn.branchIds
     .map((branchId, branchIndex) => ({
@@ -93,5 +101,26 @@ export function TurnView<TMessage extends Message = Message>({
         ))}
       </div>
     </article>
+  );
+}
+
+export const TurnView = memo(TurnViewComponent) as typeof TurnViewComponent;
+
+function areTurnRenderStatesEqual<TMessage extends Message>(
+  previous: {
+    mode: ChatMode;
+    threadId?: string;
+    turn?: ChatTurn<TMessage>;
+  },
+  next: {
+    mode: ChatMode;
+    threadId?: string;
+    turn?: ChatTurn<TMessage>;
+  },
+) {
+  return (
+    previous.mode === next.mode &&
+    previous.threadId === next.threadId &&
+    previous.turn === next.turn
   );
 }

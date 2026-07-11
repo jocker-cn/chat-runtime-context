@@ -1,19 +1,21 @@
 import { memo, useCallback } from "react";
 import type React from "react";
-import { InnerFocusManager } from "./InnerFocusManager";
+import { InnerFocusManager } from "../react/accessibility/InnerFocusManager";
 
 export interface FrameListItemProps {
   frameId: string;
   className?: string;
   enabled: boolean;
   active: boolean;
-  frameRole?: string;
   children: React.ReactNode;
   registerFrame: (frameId: string, element: HTMLDivElement | null) => void;
   onExitFrame: (frameId: string) => void;
-  onFrameFocus: (frameId: string) => void;
+  onFrameFocus: (
+    event: React.FocusEvent<HTMLDivElement>,
+    frameId: string,
+  ) => void;
   onFrameKeyDown: (
-    event: React.KeyboardEvent<HTMLDivElement>,
+    event: React.KeyboardEvent<HTMLElement>,
     frameId: string,
   ) => void;
 }
@@ -23,7 +25,6 @@ function FrameListItemComponent({
   className,
   enabled,
   active,
-  frameRole,
   children,
   registerFrame,
   onExitFrame,
@@ -37,8 +38,8 @@ function FrameListItemComponent({
     [frameId, registerFrame],
   );
 
-  const handleFocus = useCallback(() => {
-    onFrameFocus(frameId);
+  const handleFocus = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    onFrameFocus(event, frameId);
   }, [frameId, onFrameFocus]);
 
   const handleBlur = useCallback(() => {
@@ -53,15 +54,20 @@ function FrameListItemComponent({
   );
 
   return (
-    <InnerFocusManager enabled={enabled}>
+    <InnerFocusManager
+      enabled={enabled}
+      role={enabled ? "listitem" : undefined}
+      active={active}
+      onExit={handleBlur}
+      excludeOuterFocusable
+    >
       <div
         ref={ref}
-        role={frameRole}
         className={className}
         data-active-frame={active ? "true" : undefined}
         data-frame-id={frameId}
+        data-enabled={enabled ? "true" : undefined}
         tabIndex={enabled ? 0 : undefined}
-        onBlur={handleBlur}
         onFocus={handleFocus}
         onKeyDown={handleKeyDown}
       >

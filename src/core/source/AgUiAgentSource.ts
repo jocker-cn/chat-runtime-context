@@ -8,6 +8,7 @@ import type {
   ChatMetadata,
   MessageReader,
 } from "../contracts/chat-runtime";
+import { ListenerSet } from "../internal/ListenerSet";
 import type {
   AnswerSource,
   ChatSourceEvent,
@@ -206,24 +207,20 @@ export function createAgUiAgentSource<
 
 class AgentMessageReader implements MessageReader<Message> {
   private readonly agent: AbstractAgent;
-  private readonly listeners = new Set<() => void>();
+  private readonly listeners = new ListenerSet();
 
   constructor(agent: AbstractAgent) {
     this.agent = agent;
   }
 
   subscribe = (listener: () => void) => {
-    this.listeners.add(listener);
-
-    return () => {
-      this.listeners.delete(listener);
-    };
+    return this.listeners.add(listener);
   };
 
   getMessages = () => this.agent.messages;
 
   notify = () => {
-    this.listeners.forEach((listener) => listener());
+    this.listeners.emit();
   };
 }
 

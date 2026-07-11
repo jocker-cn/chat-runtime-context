@@ -1,5 +1,6 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useChatExtensions } from "../context/ChatContext";
+import { ListenerSet } from "../internal/ListenerSet";
 
 export interface ExtensionTarget {
   scope: "conversation" | "turn" | "branch" | "group" | "message";
@@ -19,10 +20,10 @@ export interface ChatExtensionStore {
 
 export function createChatExtensionStore(): ChatExtensionStore {
   const values = new Map<string, unknown>();
-  const listeners = new Map<string, Set<() => void>>();
+  const listeners = new Map<string, ListenerSet>();
 
   const emit = (storeKey: string) => {
-    listeners.get(storeKey)?.forEach((listener) => listener());
+    listeners.get(storeKey)?.emit();
   };
 
   return {
@@ -31,22 +32,27 @@ export function createChatExtensionStore(): ChatExtensionStore {
     },
     set: (target, key, value) => {
       const storeKey = createStoreKey(target, key);
+      if (values.has(storeKey) && Object.is(values.get(storeKey), value)) {
+        return;
+      }
+
       values.set(storeKey, value);
       emit(storeKey);
     },
     delete: (target, key) => {
       const storeKey = createStoreKey(target, key);
-      values.delete(storeKey);
+      if (!values.delete(storeKey)) return;
+
       emit(storeKey);
     },
     subscribe: (target, key, listener) => {
       const storeKey = createStoreKey(target, key);
-      const keyListeners = listeners.get(storeKey) ?? new Set<() => void>();
-      keyListeners.add(listener);
+      const keyListeners = listeners.get(storeKey) ?? new ListenerSet();
+      const unsubscribe = keyListeners.add(listener);
       listeners.set(storeKey, keyListeners);
 
       return () => {
-        keyListeners.delete(listener);
+        unsubscribe();
         if (keyListeners.size === 0) {
           listeners.delete(storeKey);
         }
@@ -60,22 +66,39 @@ export function useChatExtension<T>(
   key: string,
 ): [T | undefined, (value: T) => void, () => void] {
   const store = useChatExtensions<ChatExtensionStore>();
+  const targetScope = target.scope;
+  const targetId = target.id;
+  const stableTarget = useMemo<ExtensionTarget>(
+    () => ({
+      scope: targetScope,
+      id: targetId,
+    }),
+    [targetId, targetScope],
+  );
+  const subscribe = useCallback(
+    (listener: () => void) => store.subscribe(stableTarget, key, listener),
+    [key, stableTarget, store],
+  );
+  const getSnapshot = useCallback(
+    () => store.get<T>(stableTarget, key),
+    [key, stableTarget, store],
+  );
   const value = useSyncExternalStore(
-    (listener) => store.subscribe(target, key, listener),
-    () => store.get<T>(target, key),
-    () => store.get<T>(target, key),
+    subscribe,
+    getSnapshot,
+    getSnapshot,
   );
 
   const setValue = useCallback(
     (nextValue: T) => {
-      store.set(target, key, nextValue);
+      store.set(stableTarget, key, nextValue);
     },
-    [key, store, target],
+    [key, stableTarget, store],
   );
 
   const deleteValue = useCallback(() => {
-    store.delete(target, key);
-  }, [key, store, target]);
+    store.delete(stableTarget, key);
+  }, [key, stableTarget, store]);
 
   return [value, setValue, deleteValue];
 }

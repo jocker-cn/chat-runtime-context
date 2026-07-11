@@ -90,6 +90,7 @@ export function App() {
             slot: styles.frameSlot,
           }}
           empty={<p className="empty">Send a message to create a turn.</p>}
+          loadingIndicator={<DemoLoadingIndicator />}
         />
       </section>
 
@@ -131,6 +132,7 @@ export function App() {
             slot: styles.frameSlot,
           }}
           empty={<p className="empty">Send a message to create a turn.</p>}
+          loadingIndicator={<DemoLoadingIndicator />}
         />
       </section>
     </main>
@@ -141,4 +143,13 @@ function renderDemoInput(props: FrameCardProps<DemoMessage>) {
   const Card = demoRenderer.getCard(props.message, props.context);
 
   return <Card {...props} />;
+}
+
+function DemoLoadingIndicator() {
+  return (
+    <div className="chat-loading" role="status" aria-live="polite">
+      <span className="chat-loading-dot" aria-hidden="true" />
+      Generating response...
+    </div>
+  );
 }
