@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 export interface ThinkContentProps {
   title: string;
@@ -11,18 +11,35 @@ export function ThinkContent({
   children,
   phase,
 }: ThinkContentProps) {
+  const titleId = useId();
+  const contentId = useId();
+  const hasContent =
+    children !== null && children !== undefined && children !== "";
+
   return (
     <section
       className="message-card message-card-thinking"
       data-thinking-phase={phase}
-      aria-live="polite"
+      role="article"
+      tabIndex={0}
+      aria-labelledby={titleId}
+      aria-describedby={hasContent ? contentId : undefined}
+      aria-busy={phase !== "completed"}
     >
-      <header className="thinking-card-title">
+      <header
+        id={titleId}
+        className="thinking-card-title"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         <span className="thinking-card-indicator" aria-hidden="true" />
         {title}
       </header>
-      {children ? (
-        <div className="thinking-card-content">{children}</div>
+      {hasContent ? (
+        <div id={contentId} className="thinking-card-content">
+          {children}
+        </div>
       ) : null}
     </section>
   );

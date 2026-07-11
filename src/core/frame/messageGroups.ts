@@ -22,7 +22,7 @@ export function groupAdjacentMessages<
   }];
 }
 
-export function createGroupId(
+function createGroupId(
   context: MessageGroupContext,
 ) {
   return [

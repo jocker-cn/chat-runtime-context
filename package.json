@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:accessibility": "vitest run test/core/react/accessibility/accessibility.test.tsx"
+    "test:accessibility": "vitest run test/core/react/accessibility"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.57",

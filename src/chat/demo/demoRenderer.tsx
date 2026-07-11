@@ -1,4 +1,5 @@
 import type { Message } from "@ag-ui/client";
+import { useId } from "react";
 import { useSelectBranch } from "../../core/context/ChatContext";
 import { createFrameRenderer } from "../../core/frame/createFrameRenderer";
 import type { FrameCardProps } from "../../core/frame/createFrameRenderer";
@@ -9,7 +10,6 @@ import {
   isThinkingActivityMessage,
   type ThinkingActivityPhase,
 } from "./thinkingActivity";
-import {useEffect} from "react";
 
 export const demoRenderer = createFrameRenderer<DemoMessage>({
   cards: {
@@ -28,13 +28,17 @@ export const demoRenderer = createFrameRenderer<DemoMessage>({
 });
 
 function UserMessageCard({ message }: FrameCardProps<DemoMessage>) {
-  useEffect(() => {
-    console.log({message})
-  }, []);
+  const contentId = useId();
+
   return (
-    <div className="message-card message-card-user" tabIndex={0}>
-      {messageText(message)}
-    </div>
+    <article
+      className="message-card message-card-user"
+      tabIndex={0}
+      aria-label="User message"
+      aria-describedby={contentId}
+    >
+      <div id={contentId}>{messageText(message)}</div>
+    </article>
   );
 }
 
@@ -44,13 +48,21 @@ function AssistantMessageCard({
 }: FrameCardProps<DemoMessage>) {
   const selectBranch = useSelectBranch();
   const isSelected = context.isSelectedBranch;
+  const contentId = useId();
 
   return (
-    <div className="message-card message-card-assistant">
-      <MarkdownMessage
-        content={messageText(message)}
-        actions={message.actions}
-      />
+    <article
+      className="message-card message-card-assistant"
+      tabIndex={0}
+      aria-label="AI response"
+      aria-describedby={contentId}
+    >
+      <div id={contentId}>
+        <MarkdownMessage
+          content={messageText(message)}
+          actions={message.actions}
+        />
+      </div>
       <div className="message-card-actions">
         <button
           type="button"
@@ -67,15 +79,24 @@ function AssistantMessageCard({
           {isSelected ? "已选择" : "选择"}
         </button>
       </div>
-    </div>
+    </article>
   );
 }
 
 function ReasoningMessageCard({ message }: FrameCardProps<DemoMessage>) {
+  const contentId = useId();
+
   return (
-    <div className="message-card message-card-reasoning">
-      <MarkdownMessage content={messageText(message)} />
-    </div>
+    <article
+      className="message-card message-card-reasoning"
+      tabIndex={0}
+      aria-label="AI reasoning"
+      aria-describedby={contentId}
+    >
+      <div id={contentId}>
+        <MarkdownMessage content={messageText(message)} />
+      </div>
+    </article>
   );
 }
 
@@ -106,20 +127,41 @@ function thinkingTitle(phase: ThinkingActivityPhase) {
 }
 
 function ToolMessageCard({ message }: FrameCardProps<DemoMessage>) {
+  const contentId = useId();
+
   return (
-    <pre className="message-card message-card-tool">
-      {messageText(message)}
+    <pre
+      className="message-card message-card-tool"
+      role="article"
+      tabIndex={0}
+      aria-label="Tool message"
+      aria-describedby={contentId}
+    >
+      <code id={contentId}>{messageText(message)}</code>
     </pre>
   );
 }
 
 function FallbackMessageCard({ message }: FrameCardProps<DemoMessage>) {
+  const contentId = useId();
+
   return (
-    <div className="message-card">
+    <article
+      className="message-card"
+      tabIndex={0}
+      aria-label={`${capitalize(message.role)} message`}
+      aria-describedby={contentId}
+    >
       <strong>{message.role}</strong>
-      <p>{messageText(message)}</p>
-    </div>
+      <p id={contentId}>{messageText(message)}</p>
+    </article>
   );
+}
+
+function capitalize(value: string) {
+  return value.length > 0
+    ? `${value[0]?.toUpperCase()}${value.slice(1)}`
+    : value;
 }
 
 function messageText(message: Message) {

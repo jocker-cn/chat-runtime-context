@@ -48,6 +48,10 @@ class RuntimeFocusRegistry {
       return;
     }
 
+    if (current) {
+      this.clearGroupAttributes(current);
+    }
+
     this.groups.set(id, { element, id, token });
     element.dataset.runtimeFocusGroupId = id;
     this.reconcileTabStops();
@@ -60,9 +64,7 @@ class RuntimeFocusRegistry {
     }
 
     this.groups.delete(id);
-    if (current.element.dataset.runtimeFocusGroupId === id) {
-      delete current.element.dataset.runtimeFocusGroupId;
-    }
+    this.clearGroupAttributes(current);
     this.reconcileTabStops();
   }
 
@@ -155,6 +157,11 @@ class RuntimeFocusRegistry {
       return;
     }
 
+    groups.forEach((entry, index) => {
+      entry.element.setAttribute("aria-posinset", String(index + 1));
+      entry.element.setAttribute("aria-setsize", String(groups.length));
+    });
+
     const remembered = groups.find(
       (entry) => entry.id === this.rememberedGroupId,
     );
@@ -176,11 +183,19 @@ class RuntimeFocusRegistry {
       entry.element.tabIndex = entry.id === id ? 0 : -1;
     });
   }
+
+  private clearGroupAttributes(entry: RuntimeFocusGroupEntry) {
+    if (entry.element.dataset.runtimeFocusGroupId === entry.id) {
+      delete entry.element.dataset.runtimeFocusGroupId;
+    }
+    entry.element.removeAttribute("aria-posinset");
+    entry.element.removeAttribute("aria-setsize");
+  }
 }
 
 const RuntimeFocusContext = createContext<RuntimeFocusRegistry | null>(null);
 
-export interface RuntimeFocusControllerProps {
+interface RuntimeFocusControllerProps {
   children: ReactNode;
 }
 
@@ -208,6 +223,8 @@ export function useRuntimeFocusRootProps() {
   return useMemo(
     () => ({
       ref: registry.setRoot,
+      role: "list" as const,
+      "aria-label": "Chat messages",
       onFocusCapture: registry.handleFocusCapture,
       onKeyDownCapture: registry.handleKeyDownCapture,
     }),
@@ -215,11 +232,7 @@ export function useRuntimeFocusRootProps() {
   );
 }
 
-export function useRuntimeFocusControllerAvailable() {
-  return useContext(RuntimeFocusContext) !== null;
-}
-
-export function useRuntimeFocusGroup(
+function useRuntimeFocusGroup(
   groupId: string,
   enabled = true,
 ) {
@@ -246,7 +259,7 @@ export function useRuntimeFocusGroup(
   };
 }
 
-export interface RuntimeFocusGroupProps
+interface RuntimeFocusGroupProps
   extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
   enabled?: boolean;
@@ -258,7 +271,11 @@ export function RuntimeFocusGroup({
   enabled = true,
   groupId,
   onKeyDown,
+  role = "listitem",
   tabIndex,
+  "aria-label": ariaLabel = "Message",
+  "aria-keyshortcuts": ariaKeyShortcuts =
+    "ArrowUp ArrowDown Enter Escape",
   ...props
 }: RuntimeFocusGroupProps) {
   const [active, setActive] = useState(false);
@@ -313,6 +330,9 @@ export function RuntimeFocusGroup({
         ref={setElement}
         data-active-runtime-group={active ? "true" : undefined}
         data-runtime-focus-group-id={groupId}
+        role={role}
+        aria-label={ariaLabel}
+        aria-keyshortcuts={ariaKeyShortcuts}
         tabIndex={
           enabled
             ? runtimeGroup.managed

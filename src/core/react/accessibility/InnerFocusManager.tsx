@@ -15,35 +15,39 @@ const focusableSelector =
 
 function getFocusableElements(
   container: Element | null,
-  excludeFirst = false,
+  excludeOuter = false,
 ) {
   if (!container) {
     return [];
   }
 
+  const outerElement = excludeOuter ? container.firstElementChild : null;
   const elements = Array.from(
     container.querySelectorAll<HTMLElement>(focusableSelector),
   ).filter(
     (element) =>
+      element !== outerElement &&
       !element.hasAttribute("disabled") &&
-      !element.hidden &&
-      element.getAttribute("aria-hidden") !== "true",
+      !element.closest('[hidden], [aria-hidden="true"], [inert]'),
   );
 
-  return excludeFirst ? elements.slice(1) : elements;
+  return elements;
 }
 
 export function hasInnerFocusableElements(container: Element | null) {
   return getFocusableElements(container).length > 0;
 }
 
-export function setInnerFocusableTabIndex(
-  container: Element | null,
-  value: number,
+function restoreTabIndex(
+  element: HTMLElement,
+  originalTabIndex: string | null,
 ) {
-  getFocusableElements(container).forEach((element) => {
-    element.tabIndex = value;
-  });
+  if (originalTabIndex === null) {
+    element.removeAttribute("tabindex");
+  } else {
+    element.setAttribute("tabindex", originalTabIndex);
+  }
+  element.classList.remove(KEYBOARD_FOCUS);
 }
 
 export type InnerFocusManagerProps = HTMLAttributes<HTMLDivElement> & {
@@ -99,14 +103,18 @@ export function InnerFocusManager({
 
   useLayoutEffect(() => {
     const items = getItems();
+    const currentItems = new Set(items);
+
+    originalTabIndexRef.current.forEach((tabIndex, element) => {
+      if (!currentItems.has(element)) {
+        restoreTabIndex(element, tabIndex);
+        originalTabIndexRef.current.delete(element);
+      }
+    });
 
     if (!enabled) {
       originalTabIndexRef.current.forEach((tabIndex, element) => {
-        if (tabIndex === null) {
-          element.removeAttribute("tabindex");
-        } else {
-          element.setAttribute("tabindex", tabIndex);
-        }
+        restoreTabIndex(element, tabIndex);
       });
       originalTabIndexRef.current.clear();
       return;
@@ -121,7 +129,10 @@ export function InnerFocusManager({
             : null,
         );
       }
-      element.tabIndex = active ? 0 : -1;
+      const nextTabIndex = active ? 0 : -1;
+      if (element.tabIndex !== nextTabIndex) {
+        element.tabIndex = nextTabIndex;
+      }
     });
   });
 
@@ -140,12 +151,7 @@ export function InnerFocusManager({
   useEffect(
     () => () => {
       originalTabIndexRef.current.forEach((tabIndex, element) => {
-        if (tabIndex === null) {
-          element.removeAttribute("tabindex");
-        } else {
-          element.setAttribute("tabindex", tabIndex);
-        }
-        element.classList.remove(KEYBOARD_FOCUS);
+        restoreTabIndex(element, tabIndex);
       });
       originalTabIndexRef.current.clear();
     },

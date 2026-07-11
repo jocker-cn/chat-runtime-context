@@ -1,9 +1,8 @@
 import type { Message } from "@ag-ui/client";
 import { memo } from "react";
 import { useBranchRenderState } from "../context/ChatContext";
-import { FrameListView } from "../frame/FrameList";
+import { FrameListView } from "../frame/FrameListView";
 import type { FrameRenderer } from "../frame/createFrameRenderer";
-import type { FrameListAccessibilityOptions } from "../react/accessibility/useFrameListAccessibility";
 
 export interface BranchViewProps<TMessage extends Message = Message> {
   branchId: string;
@@ -13,7 +12,6 @@ export interface BranchViewProps<TMessage extends Message = Message> {
   frameListClassName?: string;
   frameClassName?: string;
   slotClassName?: string;
-  accessibility?: FrameListAccessibilityOptions;
 }
 
 function BranchViewComponent<TMessage extends Message = Message>({
@@ -24,7 +22,6 @@ function BranchViewComponent<TMessage extends Message = Message>({
   frameListClassName,
   frameClassName,
   slotClassName,
-  accessibility,
 }: BranchViewProps<TMessage>) {
   const state = useBranchRenderState<TMessage>(branchId);
   const { branch, messages } = state;
@@ -46,7 +43,6 @@ function BranchViewComponent<TMessage extends Message = Message>({
         className={frameListClassName}
         frameClassName={frameClassName}
         slotClassName={slotClassName}
-        accessibility={accessibility}
         state={state}
       />
     </section>

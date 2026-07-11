@@ -1,22 +1,15 @@
 import type { Message } from "@ag-ui/client";
 import type React from "react";
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import type { BranchRenderState } from "../context/ChatContext";
-import { useBranchRenderState } from "../context/ChatContext";
 import type { ChatBranch, ChatMode } from "../contracts/chat-runtime";
 import { groupAdjacentMessages } from "./messageGroups";
 import type { FrameRenderer } from "./createFrameRenderer";
-import type {
-  FrameListAccessibilityApi,
-  FrameListAccessibilityOptions,
-} from "../react/accessibility/useFrameListAccessibility";
-import { useFrameListAccessibility } from "../react/accessibility/useFrameListAccessibility";
-import { useRuntimeFocusControllerAvailable } from "../react/accessibility/RuntimeFocusController";
 import { FrameListItem } from "./FrameListItem";
 import { FrameSlot } from "./FrameSlot";
 import type { MessageGroup, MessageRenderContext } from "./types";
 
-export interface FrameListProps<TMessage extends Message = Message> {
+interface FrameListViewProps<TMessage extends Message = Message> {
   branchId: string;
   branchIndex?: number;
   renderer: FrameRenderer<TMessage>;
@@ -24,19 +17,6 @@ export interface FrameListProps<TMessage extends Message = Message> {
   frameClassName?: string;
   slotClassName?: string;
   empty?: React.ReactNode;
-  accessibility?: FrameListAccessibilityOptions;
-}
-
-export function FrameList<TMessage extends Message = Message>(
-  props: FrameListProps<TMessage>,
-) {
-  const state = useBranchRenderState<TMessage>(props.branchId);
-
-  return <FrameListView {...props} state={state} />;
-}
-
-interface FrameListViewProps<TMessage extends Message = Message>
-  extends FrameListProps<TMessage> {
   state: BranchRenderState<TMessage>;
 }
 
@@ -48,7 +28,6 @@ export function FrameListView<TMessage extends Message = Message>({
   frameClassName,
   slotClassName,
   empty = null,
-  accessibility,
   state,
 }: FrameListViewProps<TMessage>) {
   const { branch, messages, mode, selectedBranchId, threadId } = state;
@@ -63,26 +42,18 @@ export function FrameListView<TMessage extends Message = Message>({
         : [],
     [branch?.turnId, branchId, messages, threadId],
   );
-  const frameIds = useStableFrameIds(groups.map((group) => group.id));
-  const runtimeFocusManaged = useRuntimeFocusControllerAvailable();
-  const accessibilityApi = useFrameListAccessibility({
-    accessibility,
-    frameIds,
-    manageTabOrder: !runtimeFocusManaged,
-  });
 
   if (!branch) {
     return empty;
   }
 
   return (
-    <div className={className} {...accessibilityApi.listProps}>
+    <div className={className}>
       {groups.length === 0
         ? empty
         : groups.map((group, groupIndex) => (
             <FrameGroup
               key={group.id}
-              accessibilityApi={accessibilityApi}
               branch={branch}
               branchIndex={branchIndex}
               frameClassName={frameClassName}
@@ -100,7 +71,6 @@ export function FrameListView<TMessage extends Message = Message>({
 }
 
 interface FrameGroupProps<TMessage extends Message = Message> {
-  accessibilityApi: FrameListAccessibilityApi;
   branch: ChatBranch<TMessage>;
   branchIndex: number;
   frameClassName?: string;
@@ -114,7 +84,6 @@ interface FrameGroupProps<TMessage extends Message = Message> {
 }
 
 function FrameGroup<TMessage extends Message = Message>({
-  accessibilityApi,
   branch,
   branchIndex,
   frameClassName,
@@ -130,12 +99,6 @@ function FrameGroup<TMessage extends Message = Message>({
     <FrameListItem
       frameId={group.id}
       className={frameClassName}
-      enabled={accessibilityApi.enabled}
-      active={accessibilityApi.activeFrameId === group.id}
-      registerFrame={accessibilityApi.registerFrame}
-      onExitFrame={accessibilityApi.onExitFrame}
-      onFrameFocus={accessibilityApi.onFrameFocus}
-      onFrameKeyDown={accessibilityApi.onFrameKeyDown}
     >
       <FrameSlot frameId={group.id} className={slotClassName}>
         {group.items.map((message, offset) => {
@@ -170,24 +133,4 @@ function FrameGroup<TMessage extends Message = Message>({
       </FrameSlot>
     </FrameListItem>
   );
-}
-
-function useStableFrameIds(frameIds: string[]): readonly string[] {
-  const frameIdsRef = useRef<string[]>([]);
-
-  if (!areStringArraysEqual(frameIdsRef.current, frameIds)) {
-    frameIdsRef.current = frameIds;
-  }
-
-  return frameIdsRef.current;
-}
-
-function areStringArraysEqual(
-  previous: readonly string[],
-  next: readonly string[],
-) {
-  if (previous === next) return true;
-  if (previous.length !== next.length) return false;
-
-  return previous.every((value, index) => value === next[index]);
 }

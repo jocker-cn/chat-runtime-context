@@ -121,18 +121,6 @@ export type {
   FrameRendererCards,
 } from "./frame/createFrameRenderer";
 export {
-  FrameList,
-} from "./frame/FrameList";
-export type {
-  FrameListProps,
-} from "./frame/FrameList";
-export {
-  FrameListItem,
-} from "./frame/FrameListItem";
-export type {
-  FrameListItemProps,
-} from "./frame/FrameListItem";
-export {
   FrameSlot,
 } from "./frame/FrameSlot";
 export type {
@@ -140,7 +128,6 @@ export type {
 } from "./frame/FrameSlot";
 export {
   InnerFocusManager,
-  setInnerFocusableTabIndex,
 } from "./react/accessibility/InnerFocusManager";
 export type {
   InnerFocusManagerProps,
@@ -153,14 +140,6 @@ export type {
   MessageGroupContext,
   MessageRenderContext,
 } from "./frame/types";
-export {
-  useFrameListAccessibility,
-} from "./react/accessibility/useFrameListAccessibility";
-export type {
-  FrameListAccessibilityApi,
-  FrameListAccessibilityOptions,
-} from "./react/accessibility/useFrameListAccessibility";
-
 export {
   BranchView,
 } from "./view/BranchView";

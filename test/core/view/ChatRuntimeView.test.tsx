@@ -88,19 +88,46 @@ describe("ChatRuntimeView response grouping", () => {
     );
 
     const question = screen.getByText("What blocks this release?");
+    const questionCard = screen.getByRole("article", {
+      name: "User message",
+    });
     const inputGroup = question.closest<HTMLElement>(
       "[data-runtime-focus-group-id]",
     )!;
     const responseFrame = document.querySelector<HTMLElement>(
       ".crt-frame-list-item",
     )!;
+    const thinkingCard = screen.getByRole("article", {
+      name: "How AI Think",
+    });
+    const assistantCard = screen.getByRole("article", {
+      name: "AI response",
+    });
     const link = screen.getByRole("link", { name: "runbook" });
 
+    expect(screen.getByRole("list", { name: "Chat messages" })).toBeTruthy();
     expect(inputGroup.getAttribute("tabindex")).toBe("-1");
-    expect(question.getAttribute("tabindex")).toBe("-1");
+    expect(inputGroup.getAttribute("aria-label")).toBe("Message");
+    expect(inputGroup.getAttribute("aria-posinset")).toBe("1");
+    expect(inputGroup.getAttribute("aria-setsize")).toBe("2");
+    expect(questionCard.getAttribute("tabindex")).toBe("-1");
+    expectDescribedContent(questionCard, "What blocks this release?");
     expect(responseFrame.getAttribute("tabindex")).toBe("0");
+    expect(responseFrame.getAttribute("aria-label")).toBe("Message");
+    expect(responseFrame.getAttribute("aria-posinset")).toBe("2");
+    expect(responseFrame.getAttribute("aria-setsize")).toBe("2");
     expect(responseFrame.textContent).toContain("How AI Think");
     expect(responseFrame.textContent).toContain("Result");
+    expect(thinkingCard.getAttribute("tabindex")).toBe("-1");
+    expect(thinkingCard.getAttribute("aria-busy")).toBe("false");
+    expect(thinkingCard.hasAttribute("aria-live")).toBe(false);
+    expectDescribedContent(
+      thinkingCard,
+      "I compared rollback readiness and metrics.",
+    );
+    expect(assistantCard.getAttribute("tabindex")).toBe("-1");
+    expectDescribedContent(assistantCard, "Result");
+    expectDescribedContent(assistantCard, "runbook");
     expect(link.getAttribute("tabindex")).toBe("-1");
 
     responseFrame.focus();
@@ -122,6 +149,12 @@ describe("ChatRuntimeView response grouping", () => {
 
     responseFrame.focus();
     fireEvent.keyDown(responseFrame, { key: "Enter" });
+    await waitFor(() => expect(document.activeElement).toBe(thinkingCard));
+
+    fireEvent.keyDown(thinkingCard, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(assistantCard));
+
+    fireEvent.keyDown(assistantCard, { key: "ArrowDown" });
     await waitFor(() => expect(document.activeElement).toBe(link));
 
     fireEvent.keyDown(link, { key: "Escape" });
@@ -130,3 +163,11 @@ describe("ChatRuntimeView response grouping", () => {
     runtime.dispose();
   });
 });
+
+function expectDescribedContent(element: HTMLElement, expected: string) {
+  const descriptionId = element.getAttribute("aria-describedby");
+  expect(descriptionId).not.toBeNull();
+  expect(document.getElementById(descriptionId!)?.textContent).toContain(
+    expected,
+  );
+}
