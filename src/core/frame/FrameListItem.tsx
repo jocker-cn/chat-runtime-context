@@ -1,6 +1,7 @@
 import { memo, useCallback } from "react";
 import type React from "react";
 import { InnerFocusManager } from "../react/accessibility/InnerFocusManager";
+import { useRuntimeFocusGroup } from "../react/accessibility/RuntimeFocusController";
 
 export interface FrameListItemProps {
   frameId: string;
@@ -31,11 +32,13 @@ function FrameListItemComponent({
   onFrameFocus,
   onFrameKeyDown,
 }: FrameListItemProps) {
+  const runtimeGroup = useRuntimeFocusGroup(frameId, enabled);
   const ref = useCallback(
     (element: HTMLDivElement | null) => {
       registerFrame(frameId, element);
+      runtimeGroup.ref(element);
     },
-    [frameId, registerFrame],
+    [frameId, registerFrame, runtimeGroup.ref],
   );
 
   const handleFocus = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
@@ -67,7 +70,16 @@ function FrameListItemComponent({
         data-active-frame={active ? "true" : undefined}
         data-frame-id={frameId}
         data-enabled={enabled ? "true" : undefined}
-        tabIndex={enabled ? 0 : undefined}
+        data-runtime-focus-group-id={
+          runtimeGroup.managed ? frameId : undefined
+        }
+        tabIndex={
+          enabled
+            ? runtimeGroup.managed
+              ? -1
+              : 0
+            : undefined
+        }
         onFocus={handleFocus}
         onKeyDown={handleKeyDown}
       >

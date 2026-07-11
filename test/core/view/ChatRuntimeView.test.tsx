@@ -29,7 +29,7 @@ describe("ChatRuntimeView response grouping", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the question and the complete AI response as two tab stops", async () => {
+  it("treats the question and complete AI response as runtime focus groups", async () => {
     const messages: DemoMessage[] = [
       {
         id: "question-1",
@@ -73,27 +73,52 @@ describe("ChatRuntimeView response grouping", () => {
     });
 
     render(
-      <ChatRuntimeView
-        runtime={runtime}
-        renderer={demoRenderer}
-        renderInput={(props: FrameCardProps<DemoMessage>) => {
-          const Card = demoRenderer.getCard(props.message, props.context);
-          return <Card {...props} />;
-        }}
-      />,
+      <div>
+        <button type="button">Before chat</button>
+        <ChatRuntimeView
+          runtime={runtime}
+          renderer={demoRenderer}
+          renderInput={(props: FrameCardProps<DemoMessage>) => {
+            const Card = demoRenderer.getCard(props.message, props.context);
+            return <Card {...props} />;
+          }}
+        />
+        <button type="button">After chat</button>
+      </div>,
     );
 
     const question = screen.getByText("What blocks this release?");
+    const inputGroup = question.closest<HTMLElement>(
+      "[data-runtime-focus-group-id]",
+    )!;
     const responseFrame = document.querySelector<HTMLElement>(
       ".crt-frame-list-item",
     )!;
     const link = screen.getByRole("link", { name: "runbook" });
 
-    expect(question.getAttribute("tabindex")).toBe("0");
+    expect(inputGroup.getAttribute("tabindex")).toBe("-1");
+    expect(question.getAttribute("tabindex")).toBe("-1");
     expect(responseFrame.getAttribute("tabindex")).toBe("0");
     expect(responseFrame.textContent).toContain("How AI Think");
     expect(responseFrame.textContent).toContain("Result");
     expect(link.getAttribute("tabindex")).toBe("-1");
+
+    responseFrame.focus();
+    fireEvent.keyDown(responseFrame, { key: "ArrowUp" });
+    await waitFor(() => expect(document.activeElement).toBe(inputGroup));
+    expect(inputGroup.getAttribute("tabindex")).toBe("0");
+    expect(responseFrame.getAttribute("tabindex")).toBe("-1");
+
+    fireEvent.keyDown(inputGroup, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(responseFrame));
+
+    const tabEvent = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Tab",
+    });
+    responseFrame.dispatchEvent(tabEvent);
+    expect(tabEvent.defaultPrevented).toBe(false);
 
     responseFrame.focus();
     fireEvent.keyDown(responseFrame, { key: "Enter" });

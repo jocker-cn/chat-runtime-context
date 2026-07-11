@@ -11,7 +11,9 @@ import type {
   FrameListAccessibilityOptions,
 } from "../react/accessibility/useFrameListAccessibility";
 import { useFrameListAccessibility } from "../react/accessibility/useFrameListAccessibility";
+import { useRuntimeFocusControllerAvailable } from "../react/accessibility/RuntimeFocusController";
 import { FrameListItem } from "./FrameListItem";
+import { FrameSlot } from "./FrameSlot";
 import type { MessageGroup, MessageRenderContext } from "./types";
 
 export interface FrameListProps<TMessage extends Message = Message> {
@@ -62,9 +64,11 @@ export function FrameListView<TMessage extends Message = Message>({
     [branch?.turnId, branchId, messages, threadId],
   );
   const frameIds = useStableFrameIds(groups.map((group) => group.id));
+  const runtimeFocusManaged = useRuntimeFocusControllerAvailable();
   const accessibilityApi = useFrameListAccessibility({
     accessibility,
     frameIds,
+    manageTabOrder: !runtimeFocusManaged,
   });
 
   if (!branch) {
@@ -133,7 +137,7 @@ function FrameGroup<TMessage extends Message = Message>({
       onFrameFocus={accessibilityApi.onFrameFocus}
       onFrameKeyDown={accessibilityApi.onFrameKeyDown}
     >
-      <div className={slotClassName} data-frame-slot-id={group.id}>
+      <FrameSlot frameId={group.id} className={slotClassName}>
         {group.items.map((message, offset) => {
           const context: MessageRenderContext = {
             threadId,
@@ -163,7 +167,7 @@ function FrameGroup<TMessage extends Message = Message>({
             />
           );
         })}
-      </div>
+      </FrameSlot>
     </FrameListItem>
   );
 }

@@ -19,25 +19,16 @@ describe("groupAdjacentMessages", () => {
     const groups = groupAdjacentMessages(messages, context);
 
     expect(groups).toHaveLength(1);
-    expect(groups[0]?.pairId).toBe("response");
     expect(groups[0]?.items).toBe(messages);
     expect(groups[0]?.id).toBe("thread-1:turn-1:branch-1:response");
   });
 
-  it("does not let backend-specific pair ids split a turn", () => {
-    const messages = [
-      { ...createMessage("thinking-1", "activity"), pairId: "thinking" },
-      { ...createMessage("answer-1", "assistant"), pairId: "answer" },
-    ];
-
-    const groups = groupAdjacentMessages(messages, context);
-
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.items).toEqual(messages);
-  });
-
   it("does not create an empty response frame", () => {
-    expect(groupAdjacentMessages([], context)).toEqual([]);
+    const first = groupAdjacentMessages([], context);
+    const second = groupAdjacentMessages([], context);
+
+    expect(first).toEqual([]);
+    expect(second).toBe(first);
   });
 });
 

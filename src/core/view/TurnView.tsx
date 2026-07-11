@@ -5,6 +5,7 @@ import { useChatSelector } from "../context/ChatContext";
 import type { ChatMode, ChatTurn } from "../contracts/chat-runtime";
 import type { FrameCardProps, FrameRenderer } from "../frame/createFrameRenderer";
 import type { MessageRenderContext } from "../frame/types";
+import { RuntimeFocusGroup } from "../react/accessibility/RuntimeFocusController";
 import { BranchView } from "./BranchView";
 
 export type TurnInputRenderer<TMessage extends Message = Message> = (
@@ -79,12 +80,15 @@ function TurnViewComponent<TMessage extends Message = Message>({
   return (
     <article className={className} data-turn-id={turn.id}>
       {turn.inputMessage && renderInput && (
-        <div className={inputClassName}>
+        <RuntimeFocusGroup
+          groupId={inputContext.groupId}
+          className={inputClassName}
+        >
           {renderInput({
             message: turn.inputMessage,
             context: inputContext,
           })}
-        </div>
+        </RuntimeFocusGroup>
       )}
       <div className={branchesClassName}>
         {branchEntries.map(({ branchId, branchIndex }) => (

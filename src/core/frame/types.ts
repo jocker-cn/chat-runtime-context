@@ -27,7 +27,6 @@ export interface MessageRenderContext {
 
 export interface MessageGroup<TMessage extends Message = Message> {
   id: string;
-  pairId: string;
   turnId: string;
   branchId: string;
   messageStartIndex: number;

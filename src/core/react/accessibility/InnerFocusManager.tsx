@@ -33,6 +33,10 @@ function getFocusableElements(
   return excludeFirst ? elements.slice(1) : elements;
 }
 
+export function hasInnerFocusableElements(container: Element | null) {
+  return getFocusableElements(container).length > 0;
+}
+
 export function setInnerFocusableTabIndex(
   container: Element | null,
   value: number,

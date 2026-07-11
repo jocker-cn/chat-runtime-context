@@ -133,6 +133,12 @@ export type {
   FrameListItemProps,
 } from "./frame/FrameListItem";
 export {
+  FrameSlot,
+} from "./frame/FrameSlot";
+export type {
+  FrameSlotProps,
+} from "./frame/FrameSlot";
+export {
   InnerFocusManager,
   setInnerFocusableTabIndex,
 } from "./react/accessibility/InnerFocusManager";

@@ -18,6 +18,7 @@ export interface FrameListAccessibilityOptions {
 interface UseFrameListAccessibilityOptions {
   accessibility?: FrameListAccessibilityOptions;
   frameIds: readonly string[];
+  manageTabOrder?: boolean;
 }
 
 function setTabIndex(element: HTMLElement | undefined, value: number) {
@@ -49,6 +50,7 @@ export interface FrameListAccessibilityApi {
 export function useFrameListAccessibility({
   accessibility,
   frameIds,
+  manageTabOrder = true,
 }: UseFrameListAccessibilityOptions): FrameListAccessibilityApi {
   const enabled = accessibility?.enabled ?? true;
   const ariaLabel = accessibility?.ariaLabel ?? "chat";
@@ -56,6 +58,7 @@ export function useFrameListAccessibility({
   const enabledRef = useRef(enabled);
   const frameIdsRef = useRef(frameIds);
   const pageStepRef = useRef(pageStep);
+  const manageTabOrderRef = useRef(manageTabOrder);
   const elementsRef = useRef(new Map<string, HTMLDivElement>());
   const focusedFrameIdRef = useRef<string | null>(null);
   const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
@@ -63,6 +66,7 @@ export function useFrameListAccessibility({
   enabledRef.current = enabled;
   frameIdsRef.current = frameIds;
   pageStepRef.current = pageStep;
+  manageTabOrderRef.current = manageTabOrder;
 
   const focusFrame = useCallback((frameId: string, moveFocus = true) => {
     if (!enabledRef.current) {
@@ -75,12 +79,18 @@ export function useFrameListAccessibility({
     }
 
     const previousId = focusedFrameIdRef.current;
-    if (previousId && previousId !== frameId) {
+    if (
+      manageTabOrderRef.current &&
+      previousId &&
+      previousId !== frameId
+    ) {
       setTabIndex(elementsRef.current.get(previousId), -1);
     }
 
     focusedFrameIdRef.current = frameId;
-    setTabIndex(next, 0);
+    if (manageTabOrderRef.current) {
+      setTabIndex(next, 0);
+    }
 
     if (moveFocus) {
       requestAnimationFrame(() => next.focus());
@@ -120,14 +130,16 @@ export function useFrameListAccessibility({
     }
 
     const latestId = frameIds.at(-1);
-    elementsRef.current.forEach((element, frameId) => {
-      setTabIndex(element, frameId === latestId ? 0 : -1);
-    });
+    if (manageTabOrder) {
+      elementsRef.current.forEach((element, frameId) => {
+        setTabIndex(element, frameId === latestId ? 0 : -1);
+      });
+    }
     focusedFrameIdRef.current = latestId ?? null;
     setActiveFrameId((current) =>
       current && currentIds.has(current) ? current : null,
     );
-  }, [enabled, frameIds]);
+  }, [enabled, frameIds, manageTabOrder]);
 
   const registerFrame = useCallback(
     (frameId: string, element: HTMLDivElement | null) => {
@@ -142,7 +154,9 @@ export function useFrameListAccessibility({
         return;
       }
 
-      setTabIndex(element, frameId === frameIdsRef.current.at(-1) ? 0 : -1);
+      if (manageTabOrderRef.current) {
+        setTabIndex(element, frameId === frameIdsRef.current.at(-1) ? 0 : -1);
+      }
     },
     [],
   );

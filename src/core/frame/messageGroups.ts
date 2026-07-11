@@ -1,6 +1,8 @@
 import type { Message } from "@ag-ui/client";
 import type { MessageGroup, MessageGroupContext } from "./types";
 
+const emptyMessageGroups: readonly MessageGroup[] = [];
+
 export function groupAdjacentMessages<
   TMessage extends Message = Message,
 >(
@@ -8,14 +10,11 @@ export function groupAdjacentMessages<
   context: MessageGroupContext,
 ): readonly MessageGroup<TMessage>[] {
   if (messages.length === 0) {
-    return [];
+    return emptyMessageGroups as readonly MessageGroup<TMessage>[];
   }
 
-  const pairId = "response";
-
   return [{
-    id: createGroupId(context, pairId),
-    pairId,
+    id: createGroupId(context),
     turnId: context.turnId,
     branchId: context.branchId,
     messageStartIndex: 0,
@@ -25,13 +24,12 @@ export function groupAdjacentMessages<
 
 export function createGroupId(
   context: MessageGroupContext,
-  pairId: string,
 ) {
   return [
     context.threadId,
     context.turnId,
     context.branchId,
-    pairId,
+    "response",
   ]
     .filter(Boolean)
     .join(":");

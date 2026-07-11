@@ -10,6 +10,10 @@ import {
   type ChatExtensionStore,
 } from "../extensions/ChatExtensionStore";
 import type { FrameRenderer } from "../frame/createFrameRenderer";
+import {
+  RuntimeFocusController,
+  useRuntimeFocusRootProps,
+} from "../react/accessibility/RuntimeFocusController";
 import { TurnView, type TurnInputRenderer } from "./TurnView";
 
 export interface ChatRuntimeClassNames {
@@ -71,14 +75,16 @@ export function ChatRuntimeView<
 
   return (
     <ChatProvider runtime={runtime} extensions={resolvedExtensions}>
-      <ChatRuntimeContent
-        renderer={renderer}
-        renderInput={renderInput}
-        classNames={resolvedClassNames}
-        showOnlySelectedBranch={showOnlySelectedBranch}
-        empty={empty}
-        loadingIndicator={loadingIndicator}
-      />
+      <RuntimeFocusController>
+        <ChatRuntimeContent
+          renderer={renderer}
+          renderInput={renderInput}
+          classNames={resolvedClassNames}
+          showOnlySelectedBranch={showOnlySelectedBranch}
+          empty={empty}
+          loadingIndicator={loadingIndicator}
+        />
+      </RuntimeFocusController>
     </ChatProvider>
   );
 }
@@ -100,6 +106,7 @@ function ChatRuntimeContent<TMessage extends Message>({
   empty,
   loadingIndicator,
 }: ChatRuntimeContentProps<TMessage>) {
+  const runtimeFocusRootProps = useRuntimeFocusRootProps();
   const { status, turnIds } = useChatSelector(
     (snapshot) => ({
       status: snapshot.status,
@@ -109,7 +116,11 @@ function ChatRuntimeContent<TMessage extends Message>({
   );
 
   return (
-    <section className={classNames.root} data-runtime-status={status}>
+    <section
+      {...runtimeFocusRootProps}
+      className={classNames.root}
+      data-runtime-status={status}
+    >
       {turnIds.length === 0
         ? empty
         : turnIds.map((turnId) => (
