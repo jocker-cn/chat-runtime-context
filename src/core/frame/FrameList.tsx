@@ -1,6 +1,6 @@
 import type { Message } from "@ag-ui/client";
 import type React from "react";
-import { memo, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 import type { BranchRenderState } from "../context/ChatContext";
 import { useBranchRenderState } from "../context/ChatContext";
 import type { ChatBranch, ChatMode } from "../contracts/chat-runtime";
@@ -12,7 +12,6 @@ import type {
 } from "../react/accessibility/useFrameListAccessibility";
 import { useFrameListAccessibility } from "../react/accessibility/useFrameListAccessibility";
 import { FrameListItem } from "./FrameListItem";
-import { FrameSlot } from "./FrameSlot";
 import type { MessageGroup, MessageRenderContext } from "./types";
 
 export interface FrameListProps<TMessage extends Message = Message> {
@@ -77,7 +76,7 @@ export function FrameListView<TMessage extends Message = Message>({
       {groups.length === 0
         ? empty
         : groups.map((group, groupIndex) => (
-            <MemoizedFrameGroup
+            <FrameGroup
               key={group.id}
               accessibilityApi={accessibilityApi}
               branch={branch}
@@ -134,7 +133,7 @@ function FrameGroup<TMessage extends Message = Message>({
       onFrameFocus={accessibilityApi.onFrameFocus}
       onFrameKeyDown={accessibilityApi.onFrameKeyDown}
     >
-      <FrameSlot frameId={group.id} className={slotClassName}>
+      <div className={slotClassName} data-frame-slot-id={group.id}>
         {group.items.map((message, offset) => {
           const context: MessageRenderContext = {
             threadId,
@@ -164,44 +163,8 @@ function FrameGroup<TMessage extends Message = Message>({
             />
           );
         })}
-      </FrameSlot>
+      </div>
     </FrameListItem>
-  );
-}
-
-const MemoizedFrameGroup = memo(
-  FrameGroup,
-  areFrameGroupPropsEqual,
-) as typeof FrameGroup;
-
-function areFrameGroupPropsEqual<TMessage extends Message>(
-  previous: FrameGroupProps<TMessage>,
-  next: FrameGroupProps<TMessage>,
-) {
-  return (
-    (previous.accessibilityApi.activeFrameId === previous.group.id) ===
-      (next.accessibilityApi.activeFrameId === next.group.id) &&
-    previous.accessibilityApi.enabled === next.accessibilityApi.enabled &&
-    previous.accessibilityApi.registerFrame ===
-      next.accessibilityApi.registerFrame &&
-    previous.accessibilityApi.onExitFrame ===
-      next.accessibilityApi.onExitFrame &&
-    previous.accessibilityApi.onFrameFocus ===
-      next.accessibilityApi.onFrameFocus &&
-    previous.accessibilityApi.onFrameKeyDown ===
-      next.accessibilityApi.onFrameKeyDown &&
-    previous.branch === next.branch &&
-    previous.branchIndex === next.branchIndex &&
-    previous.frameClassName === next.frameClassName &&
-    previous.group.id === next.group.id &&
-    previous.group.messageStartIndex === next.group.messageStartIndex &&
-    previous.groupIndex === next.groupIndex &&
-    areMessageListsEqual(previous.group.items, next.group.items) &&
-    previous.mode === next.mode &&
-    previous.renderer === next.renderer &&
-    previous.selectedBranchId === next.selectedBranchId &&
-    previous.slotClassName === next.slotClassName &&
-    previous.threadId === next.threadId
   );
 }
 
@@ -223,14 +186,4 @@ function areStringArraysEqual(
   if (previous.length !== next.length) return false;
 
   return previous.every((value, index) => value === next[index]);
-}
-
-function areMessageListsEqual<TMessage extends Message>(
-  previous: readonly TMessage[],
-  next: readonly TMessage[],
-) {
-  if (previous === next) return true;
-  if (previous.length !== next.length) return false;
-
-  return previous.every((message, index) => message === next[index]);
 }

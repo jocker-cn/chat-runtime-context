@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type React from "react";
-import { setInnerFocusableTabIndex } from "./InnerFocusManager";
-import { KeyBoardEvent } from "./constants";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type HTMLAttributes,
+  type KeyboardEvent,
+} from "react";
 
 export interface FrameListAccessibilityOptions {
   enabled?: boolean;
@@ -14,216 +20,161 @@ interface UseFrameListAccessibilityOptions {
   frameIds: readonly string[];
 }
 
-const setFrameTabIndex = (
-  element: HTMLElement | null | undefined,
-  value: number,
-) => {
-  if (!element) {
-    return;
+function setTabIndex(element: HTMLElement | undefined, value: number) {
+  if (element) {
+    element.tabIndex = value;
   }
+}
 
-  element.tabIndex = value;
-  element.setAttribute("tabindex", String(value));
-};
-
-const clearFrameTabIndex = (element: HTMLElement | null | undefined) => {
-  if (!element) {
-    return;
-  }
-
+function clearTabIndex(element: HTMLElement) {
   element.removeAttribute("tabindex");
-};
+}
 
 export interface FrameListAccessibilityApi {
   activeFrameId: string | null;
   enabled: boolean;
-  listProps: React.HTMLAttributes<HTMLDivElement>;
+  listProps: HTMLAttributes<HTMLDivElement>;
   onExitFrame: (frameId: string) => void;
   onFrameFocus: (
-    event: React.FocusEvent<HTMLDivElement>,
+    event: FocusEvent<HTMLDivElement>,
     frameId: string,
   ) => void;
   onFrameKeyDown: (
-    event: React.KeyboardEvent<HTMLElement>,
+    event: KeyboardEvent<HTMLElement>,
     frameId: string,
   ) => void;
   registerFrame: (frameId: string, element: HTMLDivElement | null) => void;
 }
 
-export const useFrameListAccessibility = ({
+export function useFrameListAccessibility({
   accessibility,
   frameIds,
-}: UseFrameListAccessibilityOptions): FrameListAccessibilityApi => {
+}: UseFrameListAccessibilityOptions): FrameListAccessibilityApi {
   const enabled = accessibility?.enabled ?? true;
-  const pageStep = accessibility?.pageStep ?? 4;
   const ariaLabel = accessibility?.ariaLabel ?? "chat";
+  const pageStep = accessibility?.pageStep ?? 4;
   const enabledRef = useRef(enabled);
-  const pageStepRef = useRef(pageStep);
   const frameIdsRef = useRef(frameIds);
-  const previousFrameIdsRef = useRef<readonly string[]>([]);
-  const frameElementByIdRef = useRef(new Map<string, HTMLDivElement>());
+  const pageStepRef = useRef(pageStep);
+  const elementsRef = useRef(new Map<string, HTMLDivElement>());
   const focusedFrameIdRef = useRef<string | null>(null);
   const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
 
   enabledRef.current = enabled;
-  pageStepRef.current = pageStep;
   frameIdsRef.current = frameIds;
+  pageStepRef.current = pageStep;
 
-  const focusFrameById = useCallback(
-    (frameId: string, shouldFocus = true) => {
-      if (!enabledRef.current) {
-        return;
-      }
+  const focusFrame = useCallback((frameId: string, moveFocus = true) => {
+    if (!enabledRef.current) {
+      return;
+    }
 
-      const previousFrameId = focusedFrameIdRef.current;
-      const previousElement = previousFrameId
-        ? frameElementByIdRef.current.get(previousFrameId)
-        : undefined;
-      const nextElement = frameElementByIdRef.current.get(frameId);
+    const next = elementsRef.current.get(frameId);
+    if (!next) {
+      return;
+    }
 
-      if (!nextElement) {
-        return;
-      }
+    const previousId = focusedFrameIdRef.current;
+    if (previousId && previousId !== frameId) {
+      setTabIndex(elementsRef.current.get(previousId), -1);
+    }
 
-      if (previousFrameId !== frameId) {
-        setFrameTabIndex(previousElement, -1);
-      }
+    focusedFrameIdRef.current = frameId;
+    setTabIndex(next, 0);
 
-      focusedFrameIdRef.current = frameId;
-      setFrameTabIndex(nextElement, 0);
-      setInnerFocusableTabIndex(nextElement, -1);
-
-      if (shouldFocus) {
-        requestAnimationFrame(() => nextElement.focus());
-      }
-    },
-    [],
-  );
+    if (moveFocus) {
+      requestAnimationFrame(() => next.focus());
+    }
+  }, []);
 
   const focusFrameByIndex = useCallback(
-    (nextIndex: number) => {
-      const currentFrameIds = frameIdsRef.current;
-      if (!enabledRef.current || currentFrameIds.length === 0) {
+    (index: number) => {
+      const currentIds = frameIdsRef.current;
+      if (!enabledRef.current || currentIds.length === 0) {
         return;
       }
 
-      const clampedIndex = Math.max(
-        0,
-        Math.min(nextIndex, currentFrameIds.length - 1),
-      );
-      const nextFrameId = currentFrameIds[clampedIndex];
-      if (nextFrameId) {
-        focusFrameById(nextFrameId);
+      const nextId = currentIds[
+        Math.max(0, Math.min(index, currentIds.length - 1))
+      ];
+      if (nextId) {
+        focusFrame(nextId);
       }
     },
-    [focusFrameById],
+    [focusFrame],
   );
 
   useEffect(() => {
-    const currentFrameIds = frameIds;
-    const currentFrameIdSet = new Set(currentFrameIds);
-
-    frameElementByIdRef.current.forEach((_element, frameId) => {
-      if (!currentFrameIdSet.has(frameId)) {
-        frameElementByIdRef.current.delete(frameId);
+    const currentIds = new Set(frameIds);
+    elementsRef.current.forEach((_element, frameId) => {
+      if (!currentIds.has(frameId)) {
+        elementsRef.current.delete(frameId);
       }
     });
 
     if (!enabled) {
-      frameElementByIdRef.current.forEach(clearFrameTabIndex);
+      elementsRef.current.forEach(clearTabIndex);
       focusedFrameIdRef.current = null;
-      previousFrameIdsRef.current = currentFrameIds;
       setActiveFrameId(null);
       return;
     }
 
-    if (currentFrameIds.length === 0) {
-      focusedFrameIdRef.current = null;
-      previousFrameIdsRef.current = currentFrameIds;
-      setActiveFrameId(null);
-      return;
-    }
-
+    const latestId = frameIds.at(-1);
+    elementsRef.current.forEach((element, frameId) => {
+      setTabIndex(element, frameId === latestId ? 0 : -1);
+    });
+    focusedFrameIdRef.current = latestId ?? null;
     setActiveFrameId((current) =>
-      current && currentFrameIdSet.has(current) ? current : null,
+      current && currentIds.has(current) ? current : null,
     );
-
-    const previousFrameIds = previousFrameIdsRef.current;
-    const previousLatestFrameId = previousFrameIds.at(-1);
-    const latestFrameId = currentFrameIds.at(-1);
-
-    if (previousLatestFrameId && previousLatestFrameId !== latestFrameId) {
-      setFrameTabIndex(
-        frameElementByIdRef.current.get(previousLatestFrameId),
-        -1,
-      );
-    }
-
-    if (latestFrameId) {
-      focusFrameById(latestFrameId, false);
-    }
-
-    previousFrameIdsRef.current = currentFrameIds;
-  }, [enabled, focusFrameById, frameIds]);
+  }, [enabled, frameIds]);
 
   const registerFrame = useCallback(
     (frameId: string, element: HTMLDivElement | null) => {
       if (!element) {
-        frameElementByIdRef.current.delete(frameId);
+        elementsRef.current.delete(frameId);
         return;
       }
 
-      frameElementByIdRef.current.set(frameId, element);
-      const currentFrameIds = frameIdsRef.current;
-      const latestFrameId = currentFrameIds.at(-1);
-
-      if (enabledRef.current) {
-        setFrameTabIndex(element, frameId === latestFrameId ? 0 : -1);
-      } else {
-        clearFrameTabIndex(element);
+      elementsRef.current.set(frameId, element);
+      if (!enabledRef.current) {
+        clearTabIndex(element);
+        return;
       }
 
-      setInnerFocusableTabIndex(element, -1);
+      setTabIndex(element, frameId === frameIdsRef.current.at(-1) ? 0 : -1);
     },
     [],
   );
 
   const handleListKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const currentFrameIds = frameIdsRef.current;
-      if (!enabledRef.current || currentFrameIds.length === 0) {
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      const currentIds = frameIdsRef.current;
+      if (!enabledRef.current || currentIds.length === 0) {
         return;
       }
 
-      const focusedFrameId = focusedFrameIdRef.current;
-      const currentIndex = focusedFrameId
-        ? currentFrameIds.indexOf(focusedFrameId)
-        : currentFrameIds.length - 1;
-      const safeCurrentIndex =
-        currentIndex >= 0 ? currentIndex : currentFrameIds.length - 1;
+      const currentIndex = Math.max(
+        0,
+        currentIds.indexOf(focusedFrameIdRef.current ?? ""),
+      );
+      const offset =
+        event.key === "ArrowDown"
+          ? 1
+          : event.key === "ArrowUp"
+            ? -1
+            : event.key === "PageDown"
+              ? pageStepRef.current
+              : event.key === "PageUp"
+                ? -pageStepRef.current
+                : 0;
 
-      if (event.key === KeyBoardEvent.ARROW_DOWN) {
-        event.preventDefault();
-        focusFrameByIndex(safeCurrentIndex + 1);
+      if (offset === 0) {
         return;
       }
 
-      if (event.key === KeyBoardEvent.ARROW_UP) {
-        event.preventDefault();
-        focusFrameByIndex(safeCurrentIndex - 1);
-        return;
-      }
-
-      if (event.key === KeyBoardEvent.PAGE_DOWN) {
-        event.preventDefault();
-        focusFrameByIndex(safeCurrentIndex + pageStepRef.current);
-        return;
-      }
-
-      if (event.key === KeyBoardEvent.PAGE_UP) {
-        event.preventDefault();
-        focusFrameByIndex(safeCurrentIndex - pageStepRef.current);
-      }
+      event.preventDefault();
+      focusFrameByIndex(currentIndex + offset);
     },
     [focusFrameByIndex],
   );
@@ -231,34 +182,23 @@ export const useFrameListAccessibility = ({
   const onExitFrame = useCallback(
     (frameId: string) => {
       setActiveFrameId(null);
-      const container = frameElementByIdRef.current.get(frameId);
-
-      requestAnimationFrame(() => {
-        if (!container) {
-          return;
-        }
-
-        setInnerFocusableTabIndex(container, -1);
-        focusFrameById(frameId);
-      });
+      requestAnimationFrame(() => focusFrame(frameId));
     },
-    [focusFrameById],
+    [focusFrame],
   );
 
   const onFrameFocus = useCallback(
-    (event: React.FocusEvent<HTMLDivElement>, frameId: string) => {
-      if (!enabledRef.current || event.currentTarget !== event.target) {
-        return;
+    (event: FocusEvent<HTMLDivElement>, frameId: string) => {
+      if (event.currentTarget === event.target) {
+        focusFrame(frameId, false);
       }
-
-      focusFrameById(frameId, false);
     },
-    [focusFrameById],
+    [focusFrame],
   );
 
   const onFrameKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLElement>, frameId: string) => {
-      if (!enabledRef.current || event.key !== KeyBoardEvent.ENTER) {
+    (event: KeyboardEvent<HTMLElement>, frameId: string) => {
+      if (!enabledRef.current || event.key !== "Enter") {
         return;
       }
 
@@ -268,7 +208,7 @@ export const useFrameListAccessibility = ({
     [],
   );
 
-  const listProps = useMemo<React.HTMLAttributes<HTMLDivElement>>(
+  const listProps = useMemo<HTMLAttributes<HTMLDivElement>>(
     () => ({
       role: enabled ? "list" : undefined,
       tabIndex: enabled ? -1 : undefined,
@@ -287,4 +227,4 @@ export const useFrameListAccessibility = ({
     onFrameKeyDown,
     registerFrame,
   };
-};
+}

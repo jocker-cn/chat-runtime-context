@@ -3,11 +3,13 @@ import { useSelectBranch } from "../../core/context/ChatContext";
 import { createFrameRenderer } from "../../core/frame/createFrameRenderer";
 import type { FrameCardProps } from "../../core/frame/createFrameRenderer";
 import type { DemoMessage } from "./demoRuntime";
+import { MarkdownMessage } from "./MarkdownMessage";
 import { ThinkContent } from "./ThinkContent";
 import {
   isThinkingActivityMessage,
   type ThinkingActivityPhase,
 } from "./thinkingActivity";
+import {useEffect} from "react";
 
 export const demoRenderer = createFrameRenderer<DemoMessage>({
   cards: {
@@ -26,6 +28,9 @@ export const demoRenderer = createFrameRenderer<DemoMessage>({
 });
 
 function UserMessageCard({ message }: FrameCardProps<DemoMessage>) {
+  useEffect(() => {
+    console.log({message})
+  }, []);
   return (
     <div className="message-card message-card-user" tabIndex={0}>
       {messageText(message)}
@@ -42,7 +47,10 @@ function AssistantMessageCard({
 
   return (
     <div className="message-card message-card-assistant">
-      <div>{messageText(message)}</div>
+      <MarkdownMessage
+        content={messageText(message)}
+        actions={message.actions}
+      />
       <div className="message-card-actions">
         <button
           type="button"
@@ -66,7 +74,7 @@ function AssistantMessageCard({
 function ReasoningMessageCard({ message }: FrameCardProps<DemoMessage>) {
   return (
     <div className="message-card message-card-reasoning">
-      {messageText(message)}
+      <MarkdownMessage content={messageText(message)} />
     </div>
   );
 }

@@ -1,38 +1,16 @@
 import type { Message } from "@ag-ui/client";
-import type React from "react";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ChatProvider, useChatSelector } from "../context/ChatContext";
-import type { ChatRuntime } from "../contracts/chat-runtime";
-import type { ChatRuntimeStatus } from "../contracts/chat-runtime";
-import type { ChatExtensionStore } from "../extensions/ChatExtensionStore";
-import { createChatExtensionStore } from "../extensions/ChatExtensionStore";
+import type {
+  ChatRuntime,
+  ChatRuntimeStatus,
+} from "../contracts/chat-runtime";
+import {
+  createChatExtensionStore,
+  type ChatExtensionStore,
+} from "../extensions/ChatExtensionStore";
 import type { FrameRenderer } from "../frame/createFrameRenderer";
-import { TurnView } from "./TurnView";
-import type { TurnInputRenderer } from "./TurnView";
-
-export interface ChatRuntimeViewProps<
-  TInput = unknown,
-  TMessage extends Message = Message,
-  TExtensions = ChatExtensionStore,
-> {
-  runtime: ChatRuntime<TInput, TMessage>;
-  renderer: FrameRenderer<TMessage>;
-  renderInput?: TurnInputRenderer<TMessage>;
-  extensions?: TExtensions;
-  classNames?: Partial<ChatRuntimeClassNames>;
-  unstyled?: boolean;
-  className?: string;
-  turnClassName?: string;
-  inputClassName?: string;
-  branchesClassName?: string;
-  branchClassName?: string;
-  frameListClassName?: string;
-  frameClassName?: string;
-  slotClassName?: string;
-  showOnlySelectedBranch?: boolean;
-  empty?: React.ReactNode;
-  loadingIndicator?: React.ReactNode;
-}
+import { TurnView, type TurnInputRenderer } from "./TurnView";
 
 export interface ChatRuntimeClassNames {
   root: string;
@@ -56,6 +34,22 @@ export const chatRuntimeClassNames: ChatRuntimeClassNames = {
   slot: "crt-frame-slot",
 };
 
+export interface ChatRuntimeViewProps<
+  TInput = unknown,
+  TMessage extends Message = Message,
+  TExtensions = ChatExtensionStore,
+> {
+  runtime: ChatRuntime<TInput, TMessage>;
+  renderer: FrameRenderer<TMessage>;
+  renderInput?: TurnInputRenderer<TMessage>;
+  extensions?: TExtensions;
+  classNames?: Partial<ChatRuntimeClassNames>;
+  unstyled?: boolean;
+  showOnlySelectedBranch?: boolean;
+  empty?: ReactNode;
+  loadingIndicator?: ReactNode;
+}
+
 export function ChatRuntimeView<
   TInput = unknown,
   TMessage extends Message = Message,
@@ -67,50 +61,20 @@ export function ChatRuntimeView<
   extensions,
   classNames,
   unstyled = false,
-  className,
-  turnClassName,
-  inputClassName,
-  branchesClassName,
-  branchClassName,
-  frameListClassName,
-  frameClassName,
-  slotClassName,
   showOnlySelectedBranch,
   empty = null,
   loadingIndicator = null,
 }: ChatRuntimeViewProps<TInput, TMessage, TExtensions>) {
-  const internalExtensions = useMemo(
-    () => createChatExtensionStore(),
-    [],
-  );
-  const resolvedExtensions =
-    extensions ?? (internalExtensions as TExtensions);
-  const resolvedClassNames = resolveClassNames({
-    classNames,
-    unstyled,
-    className,
-    turnClassName,
-    inputClassName,
-    branchesClassName,
-    branchClassName,
-    frameListClassName,
-    frameClassName,
-    slotClassName,
-  });
+  const internalExtensions = useMemo(() => createChatExtensionStore(), []);
+  const resolvedExtensions = extensions ?? (internalExtensions as TExtensions);
+  const resolvedClassNames = resolveClassNames(classNames, unstyled);
 
   return (
     <ChatProvider runtime={runtime} extensions={resolvedExtensions}>
       <ChatRuntimeContent
         renderer={renderer}
         renderInput={renderInput}
-        className={resolvedClassNames.root}
-        turnClassName={resolvedClassNames.turn}
-        inputClassName={resolvedClassNames.input}
-        branchesClassName={resolvedClassNames.branches}
-        branchClassName={resolvedClassNames.branch}
-        frameListClassName={resolvedClassNames.frameList}
-        frameClassName={resolvedClassNames.frame}
-        slotClassName={resolvedClassNames.slot}
+        classNames={resolvedClassNames}
         showOnlySelectedBranch={showOnlySelectedBranch}
         empty={empty}
         loadingIndicator={loadingIndicator}
@@ -119,24 +83,23 @@ export function ChatRuntimeView<
   );
 }
 
+interface ChatRuntimeContentProps<TMessage extends Message> {
+  renderer: FrameRenderer<TMessage>;
+  renderInput?: TurnInputRenderer<TMessage>;
+  classNames: ChatRuntimeClassNames;
+  showOnlySelectedBranch?: boolean;
+  empty: ReactNode;
+  loadingIndicator: ReactNode;
+}
+
 function ChatRuntimeContent<TMessage extends Message>({
   renderer,
   renderInput,
-  className,
-  turnClassName,
-  inputClassName,
-  branchesClassName,
-  branchClassName,
-  frameListClassName,
-  frameClassName,
-  slotClassName,
+  classNames,
   showOnlySelectedBranch,
   empty,
   loadingIndicator,
-}: Omit<
-  ChatRuntimeViewProps<unknown, TMessage>,
-  "runtime" | "extensions"
->) {
+}: ChatRuntimeContentProps<TMessage>) {
   const { status, turnIds } = useChatSelector(
     (snapshot) => ({
       status: snapshot.status,
@@ -146,7 +109,7 @@ function ChatRuntimeContent<TMessage extends Message>({
   );
 
   return (
-    <section className={className} data-runtime-status={status}>
+    <section className={classNames.root} data-runtime-status={status}>
       {turnIds.length === 0
         ? empty
         : turnIds.map((turnId) => (
@@ -155,13 +118,13 @@ function ChatRuntimeContent<TMessage extends Message>({
               turnId={turnId}
               renderer={renderer}
               renderInput={renderInput}
-              className={turnClassName}
-              inputClassName={inputClassName}
-              branchesClassName={branchesClassName}
-              branchClassName={branchClassName}
-              frameListClassName={frameListClassName}
-              frameClassName={frameClassName}
-              slotClassName={slotClassName}
+              className={classNames.turn}
+              inputClassName={classNames.input}
+              branchesClassName={classNames.branches}
+              branchClassName={classNames.branch}
+              frameListClassName={classNames.frameList}
+              frameClassName={classNames.frame}
+              slotClassName={classNames.slot}
               showOnlySelectedBranch={showOnlySelectedBranch}
             />
           ))}
@@ -183,41 +146,18 @@ function areRuntimeViewStatesEqual(
   return previous.status === next.status && previous.turnIds === next.turnIds;
 }
 
-function resolveClassNames({
-  classNames,
-  unstyled,
-  className,
-  turnClassName,
-  inputClassName,
-  branchesClassName,
-  branchClassName,
-  frameListClassName,
-  frameClassName,
-  slotClassName,
-}: {
-  classNames?: Partial<ChatRuntimeClassNames>;
-  unstyled: boolean;
-  className?: string;
-  turnClassName?: string;
-  inputClassName?: string;
-  branchesClassName?: string;
-  branchClassName?: string;
-  frameListClassName?: string;
-  frameClassName?: string;
-  slotClassName?: string;
-}): ChatRuntimeClassNames {
+function resolveClassNames(
+  overrides: Partial<ChatRuntimeClassNames> | undefined,
+  unstyled: boolean,
+): ChatRuntimeClassNames {
   const base = unstyled ? emptyClassNames : chatRuntimeClassNames;
 
-  return {
-    root: cx(base.root, classNames?.root, className),
-    turn: cx(base.turn, classNames?.turn, turnClassName),
-    input: cx(base.input, classNames?.input, inputClassName),
-    branches: cx(base.branches, classNames?.branches, branchesClassName),
-    branch: cx(base.branch, classNames?.branch, branchClassName),
-    frameList: cx(base.frameList, classNames?.frameList, frameListClassName),
-    frame: cx(base.frame, classNames?.frame, frameClassName),
-    slot: cx(base.slot, classNames?.slot, slotClassName),
-  };
+  return Object.fromEntries(
+    Object.keys(base).map((key) => {
+      const name = key as keyof ChatRuntimeClassNames;
+      return [name, [base[name], overrides?.[name]].filter(Boolean).join(" ")];
+    }),
+  ) as unknown as ChatRuntimeClassNames;
 }
 
 const emptyClassNames: ChatRuntimeClassNames = {
@@ -230,9 +170,3 @@ const emptyClassNames: ChatRuntimeClassNames = {
   frame: "",
   slot: "",
 };
-
-function cx(...classNames: Array<string | undefined>) {
-  return classNames.filter(Boolean).join(" ");
-}
-
-export const CoreRuntimeView = ChatRuntimeView;

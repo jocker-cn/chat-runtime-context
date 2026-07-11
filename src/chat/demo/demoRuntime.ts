@@ -7,10 +7,9 @@ import {
   createMainBranchHistoryTurns,
 } from "../../core";
 import { StaticAnswerSource } from "./source/StaticAnswerSource";
+import type { DemoMessage } from "./demoMessage";
 
-export type DemoMessage = Message & {
-  pairId?: string;
-};
+export type { DemoMessage } from "./demoMessage";
 
 export function createDemoRuntime() {
   return new CompareChatRuntime<string, DemoMessage>({
@@ -19,7 +18,6 @@ export function createDemoRuntime() {
       id: `${turnId}:input`,
       role: "user",
       content: input,
-      pairId: `${turnId}:input`,
     }),
     sources: [
       {
@@ -36,7 +34,6 @@ export function createDemoRuntime() {
                 id: `${context.turnId}:a:answer`,
                 role: "assistant",
                 content: `A answer: ${input}`,
-                pairId: `${context.turnId}:a`,
               },
             ];
           },
@@ -56,7 +53,6 @@ export function createDemoRuntime() {
                 id: `${context.turnId}:b:answer`,
                 role: "assistant",
                 content: `B answer: ${input}`,
-                pairId: `${context.turnId}:b`,
               },
             ];
           },
@@ -247,7 +243,7 @@ function createSocketAgent({
   );
 }
 
-function createSourceAMockHistory(): Message[] {
+function createSourceAMockHistory(): DemoMessage[] {
   return [
     {
       id: "history-a-1:user",
@@ -268,13 +264,48 @@ function createSourceAMockHistory(): Message[] {
     {
       id: "history-a-2:assistant",
       role: "assistant",
-      content:
-        "建议先处理三件事：补齐回滚条件和负责人；确认灰度指标阈值；把客服和运营通知模板提前准备好。其余风险可以放到发布后观察清单里。",
+      content: `## 发布风险评估
+
+> **结论：** 今晚可以发布，但必须先关闭 P0 风险，并为 P1 风险指定负责人。
+
+| 优先级 | 风险项 | 当前状态 | 建议动作 |
+| :--- | :--- | :---: | :--- |
+| P0 | 回滚验证记录 | 未完成 | 补跑回滚演练并上传记录 |
+| P0 | 灰度指标阈值 | 待确认 | 明确错误率和延迟阈值 |
+| P1 | 客服通知模板 | 草稿 | 发布前完成审核 |
+
+### 今晚执行顺序
+
+1. 运行发布前检查命令。
+2. 确认回滚负责人和观察窗口。
+3. 完成灰度后再扩大流量。
+
+- [x] 发布说明已完成
+- [ ] 回滚记录已归档
+- [ ] 观察指标已确认
+
+相关资料：[AG-UI 文档](https://docs.ag-ui.com/)
+
+\`\`\`bash
+pnpm release:check --id 2131 --strict
+\`\`\``,
+      actions: [
+        {
+          id: "checklist",
+          label: "生成检查单",
+          result: "检查单已生成：2 个 P0 项、1 个 P1 项等待处理。",
+        },
+        {
+          id: "rollback",
+          label: "查看回滚方案",
+          result: "回滚方案：停止扩量，回退版本，并持续观察核心指标 15 分钟。",
+        },
+      ],
     },
   ];
 }
 
-function createSingleAgentMockHistory(): Message[] {
+function createSingleAgentMockHistory(): DemoMessage[] {
   return [
     {
       id: "history-single-1:user",
@@ -295,8 +326,26 @@ function createSingleAgentMockHistory(): Message[] {
     {
       id: "history-single-2:assistant",
       role: "assistant",
-      content:
-        "优先补回滚验证记录。负责人可以临时指定，但回滚记录缺失会直接影响发布风险判断。",
+      content: `### 建议：优先补回滚验证记录
+
+回滚记录直接决定故障后的恢复可信度，负责人则可以在发布窗口前临时确认。
+
+| 检查项 | 权重 | 结果 |
+| --- | ---: | --- |
+| 回滚脚本可执行 | 40% | 通过 |
+| 数据兼容性验证 | 35% | 待补充 |
+| 负责人确认 | 25% | 待确认 |
+
+**下一步：** 执行 \`rollback:verify\`，然后把结果附到发布单。
+
+> 不要在缺少数据兼容性验证时直接扩大灰度范围。`,
+      actions: [
+        {
+          id: "verify",
+          label: "开始验证",
+          result: "验证任务已创建，等待数据兼容性检查结果。",
+        },
+      ],
     },
   ];
 }

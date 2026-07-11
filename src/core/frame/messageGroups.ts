@@ -7,43 +7,20 @@ export function groupAdjacentMessages<
   messages: readonly TMessage[],
   context: MessageGroupContext,
 ): readonly MessageGroup<TMessage>[] {
-  const groups: Array<Omit<MessageGroup<TMessage>, "items"> & {
-    items: TMessage[];
-  }> = [];
+  if (messages.length === 0) {
+    return [];
+  }
 
-  messages.forEach((message, index) => {
-    const pairId = resolveMessagePairId(message, index, "response");
-    const last = groups[groups.length - 1];
+  const pairId = "response";
 
-    if (last?.pairId === pairId) {
-      last.items.push(message);
-      return;
-    }
-
-    groups.push({
-      id: createGroupId(context, pairId),
-      pairId,
-      turnId: context.turnId,
-      branchId: context.branchId,
-      messageStartIndex: index,
-      items: [message],
-    });
-  });
-
-  return groups;
-}
-
-export function resolveMessagePairId(
-  message: Message,
-  index: number,
-  fallbackPairId?: string,
-): string {
-  const record = message as Record<string, unknown>;
-  const pairId = record.pairId ?? record.message_id;
-
-  return typeof pairId === "string" && pairId.length > 0
-    ? pairId
-    : fallbackPairId ?? message.id ?? `message-${index}`;
+  return [{
+    id: createGroupId(context, pairId),
+    pairId,
+    turnId: context.turnId,
+    branchId: context.branchId,
+    messageStartIndex: 0,
+    items: messages,
+  }];
 }
 
 export function createGroupId(
