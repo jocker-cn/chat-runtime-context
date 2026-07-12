@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useChatExtensions } from "../context/ChatContext";
-import { ListenerSet } from "../internal/ListenerSet";
+import { ListenerSet } from "../../internal/ListenerSet";
 
 export interface ExtensionTarget {
   scope: "conversation" | "turn" | "branch" | "group" | "message";

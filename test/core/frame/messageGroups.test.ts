@@ -1,6 +1,6 @@
 import type { Message } from "@ag-ui/client";
 import { describe, expect, it } from "vitest";
-import { groupAdjacentMessages } from "../../../src/core/frame/messageGroups";
+import { groupAdjacentMessages } from "../../../src/core/chat/frame/messageGroups";
 
 const context = {
   threadId: "thread-1",

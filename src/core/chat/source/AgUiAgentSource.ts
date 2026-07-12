@@ -8,7 +8,7 @@ import type {
   ChatMetadata,
   MessageReader,
 } from "../contracts/chat-runtime";
-import { ListenerSet } from "../internal/ListenerSet";
+import { ListenerSet } from "../../internal/ListenerSet";
 import type {
   AnswerSource,
   ChatSourceEvent,

@@ -1,8 +1,10 @@
 import type { Message } from "@ag-ui/client";
 import { useId } from "react";
-import { useSelectBranch } from "../../core/context/ChatContext";
-import { createFrameRenderer } from "../../core/frame/createFrameRenderer";
-import type { FrameCardProps } from "../../core/frame/createFrameRenderer";
+import {
+  createFrameRenderer,
+  useSelectBranch,
+  type FrameCardProps,
+} from "../../core";
 import type { DemoMessage } from "./demoRuntime";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ThinkContent } from "./ThinkContent";

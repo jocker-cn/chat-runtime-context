@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type React from "react";
-import { RuntimeFocusGroup } from "../react/accessibility/RuntimeFocusController";
+import { RuntimeFocusGroup } from "../../react/accessibility/RuntimeFocusController";
 
 interface FrameListItemProps {
   frameId: string;

@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "./core/styles/default.css";
+import "./core/chat/styles/default.css";
 import "./styles.css";
 import { App } from "./App";
 

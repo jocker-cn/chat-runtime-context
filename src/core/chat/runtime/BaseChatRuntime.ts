@@ -10,7 +10,7 @@ import type {
   ChatRuntimeResetOptions,
   ChatRuntimeSnapshot,
 } from "../contracts/chat-runtime";
-import { ListenerSet } from "../internal/ListenerSet";
+import { ListenerSet } from "../../internal/ListenerSet";
 
 export interface CreateChatRuntimeSnapshotOptions {
   mode?: ChatMode;

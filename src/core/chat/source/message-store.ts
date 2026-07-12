@@ -1,6 +1,6 @@
 import type { Message } from "@ag-ui/client";
 import type { MessageReader } from "../contracts/chat-runtime";
-import { ListenerSet } from "../internal/ListenerSet";
+import { ListenerSet } from "../../internal/ListenerSet";
 
 export interface MessageStore<TMessage extends Message = Message>
   extends MessageReader<TMessage> {

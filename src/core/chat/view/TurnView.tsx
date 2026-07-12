@@ -5,7 +5,7 @@ import { useChatSelector } from "../context/ChatContext";
 import type { ChatMode, ChatTurn } from "../contracts/chat-runtime";
 import type { FrameCardProps, FrameRenderer } from "../frame/createFrameRenderer";
 import type { MessageRenderContext } from "../frame/types";
-import { RuntimeFocusGroup } from "../react/accessibility/RuntimeFocusController";
+import { RuntimeFocusGroup } from "../../react/accessibility/RuntimeFocusController";
 import { BranchView } from "./BranchView";
 
 export type TurnInputRenderer<TMessage extends Message = Message> = (

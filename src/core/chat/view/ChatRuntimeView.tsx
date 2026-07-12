@@ -13,7 +13,7 @@ import type { FrameRenderer } from "../frame/createFrameRenderer";
 import {
   RuntimeFocusController,
   useRuntimeFocusRootProps,
-} from "../react/accessibility/RuntimeFocusController";
+} from "../../react/accessibility/RuntimeFocusController";
 import { TurnView, type TurnInputRenderer } from "./TurnView";
 
 export interface ChatRuntimeClassNames {

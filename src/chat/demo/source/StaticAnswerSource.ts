@@ -1,10 +1,10 @@
 import type { Message } from "@ag-ui/client";
-import type { ChatMetadata } from "../../../core/contracts/chat-runtime";
 import type {
   AnswerSource,
+  ChatMetadata,
   ChatSourceEvent,
   ChatSourceRunContext,
-} from "../../../core/source/answer-source";
+} from "../../../core";
 
 export type StaticAnswerSourceResolver<
   TInput,
