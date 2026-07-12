@@ -42,6 +42,13 @@ export type {
 } from "./runtime/SingleAgentRuntime";
 
 export {
+  createChatRuntimeQueueTarget,
+} from "./queue/createChatRuntimeQueueTarget";
+export type {
+  CreateChatRuntimeQueueTargetOptions,
+} from "./queue/createChatRuntimeQueueTarget";
+
+export {
   createMainBranchHistoryTurns,
 } from "./history/createMainBranchHistoryTurns";
 export type {

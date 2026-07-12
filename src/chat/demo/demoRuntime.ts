@@ -4,8 +4,12 @@ import {
   CompareChatRuntime,
   SingleAgentRuntime,
   createAgUiAgentSource,
+  createChatRuntimeQueueTarget,
   createMainBranchHistoryTurns,
+  createQueueScheduler,
+  createSubmissionQueue,
 } from "../../core";
+import type { QueueScheduler, SubmissionQueue } from "../../core";
 import { StaticAnswerSource } from "./source/StaticAnswerSource";
 import type { DemoMessage } from "./demoMessage";
 
@@ -74,7 +78,15 @@ export interface DemoRuntimeController<
   >,
 > {
   runtime: TRuntime;
+  queue: SubmissionQueue<DemoSubmission>;
+  scheduler: QueueScheduler<DemoSubmission>;
   deleteLastTurn(): void;
+}
+
+export interface DemoSubmission {
+  text: string;
+  data?: Record<string, unknown>;
+  attachments?: readonly unknown[];
 }
 
 export function createBeComparisonRuntime({
@@ -147,12 +159,7 @@ export function createBeComparisonRuntime({
     }),
   });
 
-  return {
-    runtime,
-    deleteLastTurn: () => {
-      deleteLastTurn(runtime);
-    },
-  };
+  return createDemoRuntimeController(runtime);
 }
 
 export interface BeSingleRuntimeOptions {
@@ -196,8 +203,25 @@ export function createBeSingleRuntime({
     historyMessages,
   });
 
+  return createDemoRuntimeController(runtime);
+}
+
+function createDemoRuntimeController<
+  TRuntime extends CompareChatRuntime<string, Message>,
+>(runtime: TRuntime): DemoRuntimeController<TRuntime> {
+  const queue = createSubmissionQueue<DemoSubmission>();
+  const scheduler = createQueueScheduler({
+    queue,
+    target: createChatRuntimeQueueTarget<DemoSubmission, string>({
+      runtime,
+      toInput: (item) => item.payload.text,
+    }),
+  });
+
   return {
     runtime,
+    queue,
+    scheduler,
     deleteLastTurn: () => {
       deleteLastTurn(runtime);
     },

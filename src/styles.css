@@ -100,6 +100,69 @@ p {
   color: #384858;
 }
 
+.submission-queue {
+  border: 1px solid #d7dde4;
+  border-radius: 6px;
+  background: #f8fafb;
+  margin: -6px 0 18px;
+  padding: 10px 12px;
+}
+
+.submission-queue-header {
+  align-items: center;
+  color: #526475;
+  display: flex;
+  font-size: 13px;
+  justify-content: space-between;
+}
+
+.submission-queue-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.submission-queue-item {
+  align-items: center;
+  border-top: 1px solid #e3e7ec;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-top: 8px;
+}
+
+.submission-queue-item p {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.submission-queue-item[data-status="failed"] p {
+  color: #9b2c2c;
+}
+
+.submission-queue-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.submission-queue-actions button {
+  border: 1px solid #cbd3dc;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #384858;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.submission-queue-actions button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .message-card {
   border-radius: 8px;
   color: #182026;
@@ -370,6 +433,11 @@ p {
   }
 
   .composer {
+    grid-template-columns: 1fr;
+  }
+
+  .submission-queue-item {
+    align-items: stretch;
     grid-template-columns: 1fr;
   }
 }

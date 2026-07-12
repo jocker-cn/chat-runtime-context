@@ -174,6 +174,12 @@ export class CompareChatRuntime<
   ): Promise<ChatRunHandle> {
     this.assertNotDisposed();
 
+    if (this.snapshot.status === "running") {
+      throw new Error(
+        "ChatRuntime cannot send while a turn is running. Queue the input or use a steer capability.",
+      );
+    }
+
     const turnId = options.turnId ?? this.createTurnId();
     const sourceEntries = this.resolveSourceEntries(options.branchIds);
     const inputMessage =
