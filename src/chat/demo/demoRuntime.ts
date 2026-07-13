@@ -81,6 +81,7 @@ export interface DemoRuntimeController<
   queue: SubmissionQueue<DemoSubmission>;
   scheduler: QueueScheduler<DemoSubmission>;
   deleteLastTurn(): void;
+  dispose(): void;
 }
 
 export interface DemoSubmission {
@@ -224,6 +225,10 @@ function createDemoRuntimeController<
     scheduler,
     deleteLastTurn: () => {
       deleteLastTurn(runtime);
+    },
+    dispose: () => {
+      scheduler.dispose();
+      runtime.dispose();
     },
   };
 }

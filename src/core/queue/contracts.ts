@@ -86,11 +86,10 @@ export type DispatchTargetStatus = "idle" | "running" | "blocked";
 
 export interface DispatchTargetSnapshot {
   readonly status: DispatchTargetStatus;
-  readonly activeExecutionId?: string;
 }
 
 export interface QueueDispatchContext {
-  readonly activeExecutionId?: string;
+  readonly signal: AbortSignal;
 }
 
 export interface QueueDispatchTarget<
@@ -99,61 +98,33 @@ export interface QueueDispatchTarget<
 > {
   subscribe(listener: () => void): () => void;
   getSnapshot(): DispatchTargetSnapshot;
-  start(item: QueueItem<TPayload, TMetadata>): Promise<void>;
-  steer?(
+  dispatch(
     item: QueueItem<TPayload, TMetadata>,
     context: QueueDispatchContext,
   ): Promise<void>;
-}
-
-export type QueueDispatchMode = "start" | "steer";
-
-export type QueueFailureDisposition = "fail" | "requeue";
-
-export interface QueueDispatchFailureContext<
-  TPayload = unknown,
-  TMetadata = unknown,
-> {
-  readonly error: unknown;
-  readonly item: QueueItem<TPayload, TMetadata>;
-  readonly mode: QueueDispatchMode;
-}
-
-export type QueueDispatchFailureResolver<
-  TPayload = unknown,
-  TMetadata = unknown,
-> = (
-  context: QueueDispatchFailureContext<TPayload, TMetadata>,
-) => QueueFailureDisposition;
-
-export type DispatchNowMode = "auto" | QueueDispatchMode;
-
-export interface DispatchNowOptions {
-  mode?: DispatchNowMode;
 }
 
 export type QueueDispatchResult =
   | {
       status: "dispatched";
       itemId: string;
-      mode: QueueDispatchMode;
     }
   | {
       status: "failed";
       itemId: string;
-      mode: QueueDispatchMode;
-      disposition: QueueFailureDisposition;
       error: unknown;
     }
   | {
-      status: "not-found" | "busy" | "blocked" | "unsupported";
+      status: "cancelled" | "not-found" | "busy" | "blocked";
       itemId: string;
     };
 
 export type QueueSchedulerStatus =
   | "idle"
+  | "waiting"
   | "paused"
   | "dispatching"
+  | "blocked"
   | "disposed";
 
 export interface QueueSchedulerSnapshot {

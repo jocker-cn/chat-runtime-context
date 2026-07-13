@@ -65,13 +65,46 @@ describe("createChatRuntimeQueueTarget", () => {
     scheduler.dispose();
     runtime.dispose();
   });
+
+  it("blocks queued submissions after a runtime error by default", async () => {
+    const source = new ControlledAnswerSource();
+    const runtime = new SingleAgentRuntime<string, Message>({ source });
+    const queue = createSubmissionQueue<{ text: string }>();
+    const scheduler = createQueueScheduler({
+      queue,
+      target: createChatRuntimeQueueTarget({
+        runtime,
+        toInput: (item) => item.payload.text,
+      }),
+    });
+
+    const first = queue.enqueue({ text: "first" });
+    const second = queue.enqueue({ text: "second" });
+    await vi.waitFor(() => expect(source.inputs).toEqual(["first"]));
+
+    source.fail("first", new Error("backend unavailable"));
+
+    await vi.waitFor(() =>
+      expect(scheduler.getSnapshot().status).toBe("blocked"),
+    );
+    expect(runtime.getSnapshot().status).toBe("error");
+    expect(queue.has(first.id)).toBe(false);
+    expect(queue.has(second.id)).toBe(true);
+    expect(source.inputs).toEqual(["first"]);
+
+    scheduler.dispose();
+    runtime.dispose();
+  });
 });
 
 class ControlledAnswerSource implements AnswerSource<string, Message> {
   public readonly id = "controlled";
   public readonly inputs: string[] = [];
   public readonly messageReader = createMessageStore<Message>();
-  private readonly resolvers = new Map<string, () => void>();
+  private readonly resolvers = new Map<
+    string,
+    { resolve(): void; reject(error: unknown): void }
+  >();
 
   async *run(
     input: string,
@@ -87,14 +120,19 @@ class ControlledAnswerSource implements AnswerSource<string, Message> {
       content: `answer:${input}`,
     });
     yield { type: "branch-started" as const };
-    await new Promise<void>((resolve) => {
-      this.resolvers.set(input, resolve);
+    await new Promise<void>((resolve, reject) => {
+      this.resolvers.set(input, { resolve, reject });
     });
     yield { type: "branch-completed" as const };
   }
 
   complete(input: string) {
-    this.resolvers.get(input)?.();
+    this.resolvers.get(input)?.resolve();
+    this.resolvers.delete(input);
+  }
+
+  fail(input: string, error: unknown) {
+    this.resolvers.get(input)?.reject(error);
     this.resolvers.delete(input);
   }
 }

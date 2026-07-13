@@ -28,10 +28,7 @@ export interface CreateChatRuntimeQueueTargetOptions<
     | ChatRunOptions<TMessage>
     | undefined
     | Promise<ChatRunOptions<TMessage> | undefined>;
-  steer?(
-    item: QueueItem<TPayload, TQueueMetadata>,
-    context: QueueDispatchContext,
-  ): Promise<void> | void;
+  errorPolicy?: "block" | "continue";
 }
 
 export function createChatRuntimeQueueTarget<
@@ -51,37 +48,45 @@ export function createChatRuntimeQueueTarget<
     TBranchMetadata
   >,
 ): QueueDispatchTarget<TPayload, TQueueMetadata> {
+  const errorPolicy = options.errorPolicy ?? "block";
   const target: QueueDispatchTarget<TPayload, TQueueMetadata> = {
     subscribe: options.runtime.subscribe,
     getSnapshot: () => {
       const snapshot = options.runtime.getSnapshot();
 
-      if (snapshot.status === "closed") {
+      if (
+        snapshot.status === "closed" ||
+        (snapshot.status === "error" && errorPolicy === "block")
+      ) {
         return { status: "blocked" };
       }
 
       if (snapshot.status === "running") {
-        return {
-          status: "running",
-          activeExecutionId: snapshot.activeTurnId,
-        };
+        return { status: "running" };
       }
 
       return { status: "idle" };
     },
-    start: async (item) => {
+    dispatch: async (item, context: QueueDispatchContext) => {
+      throwIfAborted(context.signal);
       const input = await options.toInput(item);
+      throwIfAborted(context.signal);
       const runOptions = await options.toRunOptions?.(item);
+      throwIfAborted(context.signal);
 
       await options.runtime.send(input, runOptions);
     },
   };
 
-  if (options.steer) {
-    target.steer = async (item, context) => {
-      await options.steer?.(item, context);
-    };
+  return target;
+}
+
+function throwIfAborted(signal: AbortSignal) {
+  if (!signal.aborted) {
+    return;
   }
 
-  return target;
+  const error = new Error("Queue dispatch was cancelled.");
+  error.name = "AbortError";
+  throw error;
 }

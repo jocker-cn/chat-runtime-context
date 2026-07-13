@@ -18,19 +18,20 @@ body {
 
 .app {
   align-items: flex-start;
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 24px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   min-height: 100vh;
-  padding: 32px;
+  padding: 24px;
+  width: 100%;
 }
 
 .chat-shell {
   border: 1px solid #d7dde4;
   border-radius: 8px;
   background: #ffffff;
-  max-width: 980px;
-  min-height: 620px;
+  min-height: calc(100vh - 48px);
+  min-width: 0;
   padding: 24px;
   width: 100%;
 }
@@ -424,6 +425,16 @@ p {
   50% {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@media (max-width: 960px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-shell {
+    min-height: 620px;
   }
 }
 

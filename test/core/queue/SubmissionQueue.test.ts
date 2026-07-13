@@ -23,7 +23,9 @@ describe("SubmissionQueue", () => {
     ]);
     expect(first.payload).toBe(firstPayload);
     expect(first.metadata).toEqual({ region: "cn" });
-    expect(queue.peek()).toBe(first);
+    expect(queue.peekFirst()).toBe(first);
+    expect(queue.takeFirst()).toBe(first);
+    expect(queue.peekFirst()).toBe(second);
   });
 
   it("publishes one stable snapshot per mutation", () => {
@@ -52,7 +54,7 @@ describe("SubmissionQueue", () => {
 
     expect(taken?.payload).toBe(editablePayload);
     expect(queue.has(editable.id)).toBe(false);
-    expect(queue.peek()).toBe(first);
+    expect(queue.peekFirst()).toBe(first);
   });
 
   it("supports priority and payload updates before dispatch", () => {

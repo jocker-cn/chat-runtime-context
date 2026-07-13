@@ -89,12 +89,12 @@ export class SubmissionQueue<
       : this.snapshot.items;
   }
 
-  public peek(): QueueItem<TPayload, TMetadata> | undefined {
+  public peekFirst(): QueueItem<TPayload, TMetadata> | undefined {
     return this.snapshot.items.find((item) => item.status === "queued");
   }
 
-  public dequeue(): QueueItem<TPayload, TMetadata> | undefined {
-    const item = this.peek();
+  public takeFirst(): QueueItem<TPayload, TMetadata> | undefined {
+    const item = this.peekFirst();
     return item ? this.take(item.id) : undefined;
   }
 
@@ -288,9 +288,7 @@ export class SubmissionQueue<
   }
 
   private publish() {
-    const items = [...this.itemsById.values()].sort(
-      (left, right) => left.sequence - right.sequence,
-    );
+    const items = [...this.itemsById.values()];
     this.snapshot = {
       version: this.snapshot.version + 1,
       items,

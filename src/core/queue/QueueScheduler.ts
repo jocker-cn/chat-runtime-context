@@ -1,11 +1,7 @@
 import { ListenerSet } from "../internal/ListenerSet";
 import type {
-  DispatchNowOptions,
-  QueueDispatchFailureResolver,
-  QueueDispatchMode,
   QueueDispatchResult,
   QueueDispatchTarget,
-  QueueFailureDisposition,
   QueueItem,
   QueueSchedulerSnapshot,
   QueueSelectionPolicy,
@@ -20,7 +16,6 @@ export interface QueueSchedulerOptions<
   queue: SubmissionQueue<TPayload, TMetadata>;
   target: QueueDispatchTarget<TPayload, TMetadata>;
   selectNext?: QueueSelectionPolicy<TPayload, TMetadata>;
-  resolveFailure?: QueueDispatchFailureResolver<TPayload, TMetadata>;
   now?: () => number;
   autoStart?: boolean;
 }
@@ -33,10 +28,6 @@ export class QueueScheduler<
   private readonly queue: SubmissionQueue<TPayload, TMetadata>;
   private readonly target: QueueDispatchTarget<TPayload, TMetadata>;
   private readonly selectNext: QueueSelectionPolicy<TPayload, TMetadata>;
-  private readonly resolveFailure: QueueDispatchFailureResolver<
-    TPayload,
-    TMetadata
-  >;
   private readonly now: () => number;
   private unsubscribeQueue?: () => void;
   private unsubscribeTarget?: () => void;
@@ -46,6 +37,7 @@ export class QueueScheduler<
   private disposed = false;
   private pumpScheduled = false;
   private dispatchingItemId?: string;
+  private dispatchController?: AbortController;
   private snapshot: QueueSchedulerSnapshot = {
     status: "idle",
     dispatchingItemId: undefined,
@@ -57,7 +49,6 @@ export class QueueScheduler<
     this.target = options.target;
     this.selectNext =
       options.selectNext ?? createPriorityQueuePolicy<TPayload, TMetadata>();
-    this.resolveFailure = options.resolveFailure ?? defaultFailureResolver;
     this.now = options.now ?? Date.now;
 
     if (options.autoStart ?? true) {
@@ -105,7 +96,9 @@ export class QueueScheduler<
 
     this.paused = false;
     this.updateSnapshot({
-      status: this.dispatchingItemId ? "dispatching" : "idle",
+      status: this.dispatchingItemId
+        ? "dispatching"
+        : this.getRestingStatus(),
       dispatchingItemId: this.dispatchingItemId,
       lastError: this.snapshot.lastError,
     });
@@ -114,7 +107,6 @@ export class QueueScheduler<
 
   public async dispatchNow(
     itemId: string,
-    options: DispatchNowOptions = {},
   ): Promise<QueueDispatchResult> {
     this.assertNotDisposed();
     const item = this.queue.get(itemId);
@@ -126,29 +118,14 @@ export class QueueScheduler<
     }
 
     const targetSnapshot = this.target.getSnapshot();
-    const requestedMode = options.mode ?? "auto";
-
-    if (requestedMode === "start" || requestedMode === "auto") {
-      if (targetSnapshot.status === "idle") {
-        return this.dispatch(item, "start");
-      }
-      if (requestedMode === "start") {
-        return {
-          status:
-            targetSnapshot.status === "blocked" ? "blocked" : "busy",
-          itemId,
-        };
-      }
-    }
-
     if (targetSnapshot.status === "blocked") {
       return { status: "blocked", itemId };
     }
-    if (targetSnapshot.status !== "running" || !this.target.steer) {
-      return { status: "unsupported", itemId };
+    if (targetSnapshot.status !== "idle") {
+      return { status: "busy", itemId };
     }
 
-    return this.dispatch(item, "steer");
+    return this.dispatch(item);
   }
 
   public dispose() {
@@ -158,6 +135,7 @@ export class QueueScheduler<
 
     this.disposed = true;
     this.started = false;
+    this.dispatchController?.abort();
     this.unsubscribeQueue?.();
     this.unsubscribeTarget?.();
     this.unsubscribeQueue = undefined;
@@ -199,8 +177,14 @@ export class QueueScheduler<
     }
 
     const targetSnapshot = this.target.getSnapshot();
-    if (targetSnapshot.status !== "idle") {
+    if (targetSnapshot.status === "blocked") {
       this.clearWakeTimer();
+      this.setStatus("blocked");
+      return;
+    }
+    if (targetSnapshot.status === "running") {
+      this.clearWakeTimer();
+      this.setStatus("waiting");
       return;
     }
 
@@ -208,17 +192,21 @@ export class QueueScheduler<
     const now = this.now();
     const next = this.selectNext(queueSnapshot.items, { now });
     if (!next) {
+      this.setStatus(
+        queueSnapshot.items.some((item) => item.status === "queued")
+          ? "waiting"
+          : "idle",
+      );
       this.scheduleNextWake(queueSnapshot.items, now);
       return;
     }
 
     this.clearWakeTimer();
-    void this.dispatch(next, "start");
+    void this.dispatch(next);
   }
 
   private async dispatch(
     item: QueueItem<TPayload, TMetadata>,
-    mode: QueueDispatchMode,
   ): Promise<QueueDispatchResult> {
     if (this.dispatchingItemId) {
       return { status: "busy", itemId: item.id };
@@ -230,6 +218,8 @@ export class QueueScheduler<
       this.dispatchingItemId = undefined;
       return { status: "not-found", itemId: item.id };
     }
+    const controller = new AbortController();
+    this.dispatchController = controller;
 
     this.updateSnapshot({
       status: "dispatching",
@@ -238,28 +228,28 @@ export class QueueScheduler<
     });
 
     try {
-      if (mode === "steer") {
-        const steer = this.target.steer;
-        if (!steer) {
-          this.queue.release(claimed.id);
-          return { status: "unsupported", itemId: claimed.id };
-        }
-        await steer(claimed, {
-          activeExecutionId: this.target.getSnapshot().activeExecutionId,
-        });
-      } else {
-        await this.target.start(claimed);
+      await waitForDispatch(
+        this.target.dispatch(claimed, { signal: controller.signal }),
+        controller.signal,
+      );
+
+      if (controller.signal.aborted || this.disposed) {
+        this.queue.release(claimed.id);
+        return { status: "cancelled", itemId: claimed.id };
       }
 
       this.queue.ack(claimed.id);
       return {
         status: "dispatched",
         itemId: claimed.id,
-        mode,
       };
     } catch (error) {
-      const disposition = this.resolveFailure({ error, item: claimed, mode });
-      this.applyFailureDisposition(claimed.id, error, disposition);
+      if (controller.signal.aborted || isAbortError(error)) {
+        this.queue.release(claimed.id);
+        return { status: "cancelled", itemId: claimed.id };
+      }
+
+      this.queue.fail(claimed.id, error);
       this.updateSnapshot({
         status: "dispatching",
         dispatchingItemId: claimed.id,
@@ -268,34 +258,22 @@ export class QueueScheduler<
       return {
         status: "failed",
         itemId: claimed.id,
-        mode,
-        disposition,
         error,
       };
     } finally {
+      if (this.dispatchController === controller) {
+        this.dispatchController = undefined;
+      }
       this.dispatchingItemId = undefined;
       if (!this.disposed) {
         this.updateSnapshot({
-          status: this.paused ? "paused" : "idle",
+          status: this.paused ? "paused" : this.getRestingStatus(),
           dispatchingItemId: undefined,
           lastError: this.snapshot.lastError,
         });
         this.schedulePump();
       }
     }
-  }
-
-  private applyFailureDisposition(
-    itemId: string,
-    error: unknown,
-    disposition: QueueFailureDisposition,
-  ) {
-    if (disposition === "requeue") {
-      this.queue.release(itemId, { error });
-      return;
-    }
-
-    this.queue.fail(itemId, error);
   }
 
   private scheduleNextWake(
@@ -337,6 +315,28 @@ export class QueueScheduler<
     }
   }
 
+  private getRestingStatus(): QueueSchedulerSnapshot["status"] {
+    const targetStatus = this.target.getSnapshot().status;
+    if (targetStatus === "blocked") {
+      return "blocked";
+    }
+    if (targetStatus === "running") {
+      return "waiting";
+    }
+
+    return this.queue.getSnapshot().items.some((item) => item.status === "queued")
+      ? "waiting"
+      : "idle";
+  }
+
+  private setStatus(status: QueueSchedulerSnapshot["status"]) {
+    this.updateSnapshot({
+      status,
+      dispatchingItemId: this.dispatchingItemId,
+      lastError: this.snapshot.lastError,
+    });
+  }
+
   private updateSnapshot(next: QueueSchedulerSnapshot) {
     if (
       this.snapshot.status === next.status &&
@@ -364,10 +364,39 @@ export function createQueueScheduler<
   return new QueueScheduler(options);
 }
 
-function defaultFailureResolver({
-  mode,
-}: {
-  mode: QueueDispatchMode;
-}): QueueFailureDisposition {
-  return mode === "steer" ? "requeue" : "fail";
+function waitForDispatch(
+  dispatch: Promise<void>,
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(createAbortError());
+  }
+
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      reject(createAbortError());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    dispatch.then(
+      () => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function createAbortError(): Error {
+  const error = new Error("Queue dispatch was cancelled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }

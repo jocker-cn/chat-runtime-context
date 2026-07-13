@@ -176,7 +176,7 @@ export class CompareChatRuntime<
 
     if (this.snapshot.status === "running") {
       throw new Error(
-        "ChatRuntime cannot send while a turn is running. Queue the input or use a steer capability.",
+        "ChatRuntime cannot send while a turn is running. Queue the input until the active turn finishes.",
       );
     }
 

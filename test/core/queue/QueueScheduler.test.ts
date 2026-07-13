@@ -17,13 +17,14 @@ describe("QueueScheduler", () => {
     const first = queue.enqueue("first");
     const second = queue.enqueue("second");
 
-    await vi.waitFor(() => expect(target.startedIds).toEqual([first.id]));
+    await vi.waitFor(() => expect(target.dispatchedIds).toEqual([first.id]));
     expect(queue.has(first.id)).toBe(false);
     expect(queue.has(second.id)).toBe(true);
+    expect(scheduler.getSnapshot().status).toBe("waiting");
 
     target.complete();
     await vi.waitFor(() =>
-      expect(target.startedIds).toEqual([first.id, second.id]),
+      expect(target.dispatchedIds).toEqual([first.id, second.id]),
     );
 
     scheduler.dispose();
@@ -43,15 +44,15 @@ describe("QueueScheduler", () => {
 
     scheduler.start();
     await vi.waitFor(() =>
-      expect(target.startedIds).toEqual([highFirst.id]),
+      expect(target.dispatchedIds).toEqual([highFirst.id]),
     );
     target.complete();
     await vi.waitFor(() =>
-      expect(target.startedIds).toEqual([highFirst.id, highSecond.id]),
+      expect(target.dispatchedIds).toEqual([highFirst.id, highSecond.id]),
     );
     target.complete();
     await vi.waitFor(() =>
-      expect(target.startedIds).toEqual([
+      expect(target.dispatchedIds).toEqual([
         highFirst.id,
         highSecond.id,
         low.id,
@@ -77,57 +78,53 @@ describe("QueueScheduler", () => {
     expect(result).toEqual({
       status: "dispatched",
       itemId: selected.id,
-      mode: "start",
     });
-    expect(target.startedIds).toEqual([selected.id]);
+    expect(target.dispatchedIds).toEqual([selected.id]);
     expect(queue.has(first.id)).toBe(true);
     expect(queue.has(selected.id)).toBe(false);
 
     scheduler.dispose();
   });
 
-  it("uses steer for a selected item while the target is running", async () => {
-    const queue = createSubmissionQueue<{ text: string }>();
-    const target = new TestDispatchTarget<{ text: string }>();
-    target.setRunning("turn-1");
-    const scheduler = new QueueScheduler({ queue, target });
-    const selected = queue.enqueue({ text: "change direction" });
-
-    const result = await scheduler.dispatchNow(selected.id);
-
-    expect(result).toEqual({
-      status: "dispatched",
-      itemId: selected.id,
-      mode: "steer",
-    });
-    expect(target.steered).toEqual([
-      {
-        itemId: selected.id,
-        activeExecutionId: "turn-1",
-      },
-    ]);
-    expect(queue.has(selected.id)).toBe(false);
-
-    scheduler.dispose();
-  });
-
-  it("does not call start while running when steer is unavailable", async () => {
+  it("keeps a selected item queued while the target is running", async () => {
     const queue = createSubmissionQueue<string>();
-    const target = createTargetWithoutSteer<string>();
-    target.setRunning("turn-1");
+    const target = new TestDispatchTarget<string>();
+    target.setRunning();
     const scheduler = new QueueScheduler({ queue, target });
     const item = queue.enqueue("next turn");
 
     const result = await scheduler.dispatchNow(item.id);
 
-    expect(result).toEqual({ status: "unsupported", itemId: item.id });
-    expect(target.startedIds).toEqual([]);
+    expect(result).toEqual({ status: "busy", itemId: item.id });
+    expect(target.dispatchedIds).toEqual([]);
+    expect(queue.has(item.id)).toBe(true);
+    await vi.waitFor(() =>
+      expect(scheduler.getSnapshot().status).toBe("waiting"),
+    );
+
+    scheduler.dispose();
+  });
+
+  it("surfaces a blocked target through the scheduler status", async () => {
+    const queue = createSubmissionQueue<string>();
+    const target = new TestDispatchTarget<string>();
+    target.setBlocked();
+    const scheduler = new QueueScheduler({ queue, target });
+    const item = queue.enqueue("blocked");
+
+    await vi.waitFor(() =>
+      expect(scheduler.getSnapshot().status).toBe("blocked"),
+    );
+    expect(await scheduler.dispatchNow(item.id)).toEqual({
+      status: "blocked",
+      itemId: item.id,
+    });
     expect(queue.has(item.id)).toBe(true);
 
     scheduler.dispose();
   });
 
-  it("marks a failed start and requeues a failed steer by default", async () => {
+  it("marks a rejected dispatch as failed until it is retried explicitly", async () => {
     const queue = createSubmissionQueue<string>();
     const target = new TestDispatchTarget<string>();
     const scheduler = new QueueScheduler({
@@ -135,30 +132,21 @@ describe("QueueScheduler", () => {
       target,
       autoStart: false,
     });
-    const startItem = queue.enqueue("start");
-    target.startError = new Error("start failed");
+    const failedItem = queue.enqueue("fail");
+    target.dispatchError = new Error("dispatch failed");
 
-    const startResult = await scheduler.dispatchNow(startItem.id);
-    expect(startResult).toMatchObject({
+    const failedResult = await scheduler.dispatchNow(failedItem.id);
+    expect(failedResult).toMatchObject({
       status: "failed",
-      mode: "start",
-      disposition: "fail",
     });
-    expect(queue.get(startItem.id)?.status).toBe("failed");
+    expect(queue.get(failedItem.id)?.status).toBe("failed");
 
-    target.startError = undefined;
-    target.steerError = new Error("turn changed");
-    target.setRunning("turn-2");
-    const steerItem = queue.enqueue("steer");
-
-    const steerResult = await scheduler.dispatchNow(steerItem.id);
-    expect(steerResult).toMatchObject({
-      status: "failed",
-      mode: "steer",
-      disposition: "requeue",
+    target.dispatchError = undefined;
+    queue.retry(failedItem.id);
+    await expect(scheduler.dispatchNow(failedItem.id)).resolves.toEqual({
+      status: "dispatched",
+      itemId: failedItem.id,
     });
-    expect(queue.get(steerItem.id)?.status).toBe("queued");
-
     scheduler.dispose();
   });
 
@@ -176,11 +164,12 @@ describe("QueueScheduler", () => {
     try {
       queue.enqueue("later", { scheduledAt: 1_100 });
       await vi.runAllTicks();
-      expect(target.startedIds).toEqual([]);
+      expect(target.dispatchedIds).toEqual([]);
+      expect(scheduler.getSnapshot().status).toBe("waiting");
 
       now = 1_100;
       await vi.advanceTimersByTimeAsync(100);
-      expect(target.startedIds).toHaveLength(1);
+      expect(target.dispatchedIds).toHaveLength(1);
       expect(queue.size).toBe(0);
     } finally {
       scheduler.dispose();
@@ -217,7 +206,7 @@ describe("QueueScheduler", () => {
       status: "busy",
       itemId: second.id,
     });
-    expect(target.startedIds).toEqual([first.id]);
+    expect(target.dispatchedIds).toEqual([first.id]);
     scheduler.dispose();
   });
 
@@ -236,21 +225,40 @@ describe("QueueScheduler", () => {
     scheduler.start();
     await vi.waitFor(() => expect(queue.size).toBe(0), { timeout: 3000 });
 
-    expect(target.startedIds).toHaveLength(300);
+    expect(target.dispatchedIds).toHaveLength(300);
     scheduler.dispose();
+  });
+
+  it("cancels and requeues an in-flight dispatch when disposed", async () => {
+    const queue = createSubmissionQueue<string>();
+    const target = createPendingTarget<string>();
+    const scheduler = new QueueScheduler({
+      queue,
+      target,
+      autoStart: false,
+    });
+    const item = queue.enqueue("preserve me");
+
+    const resultPromise = scheduler.dispatchNow(item.id);
+    await vi.waitFor(() =>
+      expect(queue.get(item.id)?.status).toBe("dispatching"),
+    );
+    scheduler.dispose();
+
+    await expect(resultPromise).resolves.toEqual({
+      status: "cancelled",
+      itemId: item.id,
+    });
+    expect(queue.get(item.id)?.status).toBe("queued");
+    expect(scheduler.getSnapshot().status).toBe("disposed");
   });
 });
 
 class TestDispatchTarget<TPayload>
   implements QueueDispatchTarget<TPayload>
 {
-  public readonly startedIds: string[] = [];
-  public readonly steered: Array<{
-    itemId: string;
-    activeExecutionId?: string;
-  }> = [];
-  public startError?: unknown;
-  public steerError?: unknown;
+  public readonly dispatchedIds: string[] = [];
+  public dispatchError?: unknown;
   private readonly listeners = new Set<() => void>();
   private snapshot: DispatchTargetSnapshot = { status: "idle" };
 
@@ -261,29 +269,26 @@ class TestDispatchTarget<TPayload>
 
   public getSnapshot = () => this.snapshot;
 
-  public start = async (item: QueueItem<TPayload>) => {
-    if (this.startError) {
-      throw this.startError;
-    }
-    this.startedIds.push(item.id);
-    this.setRunning(item.id);
-  };
-
-  public steer = async (
+  public dispatch = async (
     item: QueueItem<TPayload>,
     context: QueueDispatchContext,
   ) => {
-    if (this.steerError) {
-      throw this.steerError;
+    if (context.signal.aborted) {
+      throw createAbortError();
     }
-    this.steered.push({
-      itemId: item.id,
-      activeExecutionId: context.activeExecutionId,
-    });
+    if (this.dispatchError) {
+      throw this.dispatchError;
+    }
+    this.dispatchedIds.push(item.id);
+    this.setRunning();
   };
 
-  public setRunning(activeExecutionId: string) {
-    this.setSnapshot({ status: "running", activeExecutionId });
+  public setRunning() {
+    this.setSnapshot({ status: "running" });
+  }
+
+  public setBlocked() {
+    this.setSnapshot({ status: "blocked" });
   }
 
   public complete() {
@@ -296,40 +301,34 @@ class TestDispatchTarget<TPayload>
   }
 }
 
-function createTargetWithoutSteer<TPayload>() {
-  const listeners = new Set<() => void>();
-  let snapshot: DispatchTargetSnapshot = { status: "idle" };
-  const startedIds: string[] = [];
+function createAlwaysIdleTarget<TPayload>() {
+  const dispatchedIds: string[] = [];
 
   return {
-    startedIds,
-    subscribe(listener: () => void) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
+    dispatchedIds,
+    subscribe: () => () => undefined,
+    getSnapshot: () => ({ status: "idle" as const }),
+    async dispatch(item: QueueItem<TPayload>) {
+      dispatchedIds.push(item.id);
     },
-    getSnapshot: () => snapshot,
-    async start(item: QueueItem<TPayload>) {
-      startedIds.push(item.id);
-    },
-    setRunning(activeExecutionId: string) {
-      snapshot = { status: "running", activeExecutionId };
-      [...listeners].forEach((listener) => listener());
-    },
-  } satisfies QueueDispatchTarget<TPayload> & {
-    startedIds: string[];
-    setRunning(activeExecutionId: string): void;
+  } satisfies QueueDispatchTarget<TPayload> & { dispatchedIds: string[] };
+}
+
+function createPendingTarget<TPayload>(): QueueDispatchTarget<TPayload> {
+  return {
+    subscribe: () => () => undefined,
+    getSnapshot: () => ({ status: "idle" }),
+    dispatch: (_item, { signal }) =>
+      new Promise<void>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(createAbortError()), {
+          once: true,
+        });
+      }),
   };
 }
 
-function createAlwaysIdleTarget<TPayload>() {
-  const startedIds: string[] = [];
-
-  return {
-    startedIds,
-    subscribe: () => () => undefined,
-    getSnapshot: () => ({ status: "idle" as const }),
-    async start(item: QueueItem<TPayload>) {
-      startedIds.push(item.id);
-    },
-  } satisfies QueueDispatchTarget<TPayload> & { startedIds: string[] };
+function createAbortError() {
+  const error = new Error("aborted");
+  error.name = "AbortError";
+  return error;
 }

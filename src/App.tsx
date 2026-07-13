@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChatRuntimeView,
   SubmissionQueueProvider,
@@ -14,6 +14,7 @@ import { demoRenderer } from "./chat/demo/demoRenderer";
 import type { FrameCardProps } from "./core";
 import type {
   DemoMessage,
+  DemoRuntimeController,
   DemoSubmission,
 } from "./chat/demo/demoRuntime";
 import styles from "./App.module.css";
@@ -21,20 +22,25 @@ import styles from "./App.module.css";
 export function App() {
   const websocketUrl =
     import.meta.env.VITE_COPILOT_WS_URL ?? "ws://localhost:8080/ws/copilot";
-  const compareDemo = useMemo(
-    () =>
-      createBeComparisonRuntime({
-        websocketUrl,
-      }),
-    [websocketUrl],
-  );
-  const singleDemo = useMemo(
-    () =>
-      createBeSingleRuntime({
-        websocketUrl,
-      }),
-    [websocketUrl],
-  );
+  const demos = useDemoRuntimeControllers(websocketUrl);
+  if (!demos) {
+    return <main className="app" aria-busy="true" />;
+  }
+
+  return <DemoChats websocketUrl={websocketUrl} demos={demos} />;
+}
+
+function DemoChats({
+  websocketUrl,
+  demos,
+}: {
+  websocketUrl: string;
+  demos: {
+    compareDemo: DemoRuntimeController;
+    singleDemo: DemoRuntimeController;
+  };
+}) {
+  const { compareDemo, singleDemo } = demos;
   const compareRuntime = compareDemo.runtime;
   const singleRuntime = singleDemo.runtime;
   const compareExtensions = useMemo(() => createChatExtensionStore(), []);
@@ -151,6 +157,28 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function useDemoRuntimeControllers(websocketUrl: string) {
+  const [demos, setDemos] = useState<{
+    websocketUrl: string;
+    compareDemo: DemoRuntimeController;
+    singleDemo: DemoRuntimeController;
+  }>();
+
+  useEffect(() => {
+    const compareDemo = createBeComparisonRuntime({ websocketUrl });
+    const singleDemo = createBeSingleRuntime({ websocketUrl });
+    const nextDemos = { websocketUrl, compareDemo, singleDemo };
+    setDemos(nextDemos);
+
+    return () => {
+      compareDemo.dispose();
+      singleDemo.dispose();
+    };
+  }, [websocketUrl]);
+
+  return demos?.websocketUrl === websocketUrl ? demos : undefined;
 }
 
 function renderDemoInput(props: FrameCardProps<DemoMessage>) {
