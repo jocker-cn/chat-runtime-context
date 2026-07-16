@@ -1,6 +1,6 @@
 import type { Message } from "@ag-ui/client";
 import type React from "react";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { BranchRenderState } from "../context/ChatContext";
 import type { ChatBranch, ChatMode } from "../contracts/chat-runtime";
 import { groupAdjacentMessages } from "./messageGroups";
@@ -95,6 +95,42 @@ function FrameGroup<TMessage extends Message = Message>({
   slotClassName,
   threadId,
 }: FrameGroupProps<TMessage>) {
+  const sharedContext = useMemo<FrameMessageContext>(
+    () => ({
+      threadId,
+      turnId: group.turnId,
+      branchId: group.branchId,
+      branchLabel: branch.label,
+      branchStatus: branch.status,
+      branchMetadata: branch.metadata,
+      sourceId: branch.sourceId,
+      messageReader: branch.messageReader,
+      selectedBranchId,
+      isSelectedBranch: selectedBranchId === branch.id,
+      groupId: group.id,
+      entityId: group.id,
+      groupIndex,
+      branchIndex,
+      mode,
+    }),
+    [
+      branch.id,
+      branch.label,
+      branch.messageReader,
+      branch.metadata,
+      branch.sourceId,
+      branch.status,
+      branchIndex,
+      group.branchId,
+      group.id,
+      group.turnId,
+      groupIndex,
+      mode,
+      selectedBranchId,
+      threadId,
+    ],
+  );
+
   return (
     <FrameListItem
       frameId={group.id}
@@ -102,31 +138,13 @@ function FrameGroup<TMessage extends Message = Message>({
     >
       <FrameSlot frameId={group.id} className={slotClassName}>
         {group.items.map((message, offset) => {
-          const context: MessageRenderContext = {
-            threadId,
-            turnId: group.turnId,
-            branchId: group.branchId,
-            branchLabel: branch.label,
-            branchStatus: branch.status,
-            branchMetadata: branch.metadata,
-            sourceId: branch.sourceId,
-            messageReader: branch.messageReader,
-            selectedBranchId,
-            isSelectedBranch: selectedBranchId === branch.id,
-            groupId: group.id,
-            entityId: group.id,
-            messageIndex: group.messageStartIndex + offset,
-            groupIndex,
-            branchIndex,
-            mode,
-          };
-          const Card = renderer.getCard(message, context);
-
           return (
-            <Card
-              key={`${group.id}:${message.id}:${offset}`}
+            <FrameMessage
+              key={message.id}
               message={message}
-              context={context}
+              messageIndex={group.messageStartIndex + offset}
+              renderer={renderer}
+              sharedContext={sharedContext}
             />
           );
         })}
@@ -134,3 +152,32 @@ function FrameGroup<TMessage extends Message = Message>({
     </FrameListItem>
   );
 }
+
+type FrameMessageContext = Omit<MessageRenderContext, "messageIndex">;
+
+interface FrameMessageProps<TMessage extends Message = Message> {
+  message: TMessage;
+  messageIndex: number;
+  renderer: FrameRenderer<TMessage>;
+  sharedContext: FrameMessageContext;
+}
+
+function FrameMessageComponent<TMessage extends Message = Message>({
+  message,
+  messageIndex,
+  renderer,
+  sharedContext,
+}: FrameMessageProps<TMessage>) {
+  const context = useMemo<MessageRenderContext>(
+    () => ({
+      ...sharedContext,
+      messageIndex,
+    }),
+    [messageIndex, sharedContext],
+  );
+  const Card = renderer.getCard(message, context);
+
+  return <Card message={message} context={context} />;
+}
+
+const FrameMessage = memo(FrameMessageComponent) as typeof FrameMessageComponent;

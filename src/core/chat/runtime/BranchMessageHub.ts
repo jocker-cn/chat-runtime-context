@@ -22,121 +22,137 @@ export interface BranchMessageScope<TMessage extends Message = Message>
   readonly id: string;
   dispose(): void;
   getMessageIds(options: { includeInput: boolean }): ReadonlySet<string>;
+  /** Commits the current source projection and ignores later source changes. */
   stopTracking(): void;
 }
 
+export type BranchMessageHubFrameClock = (
+  callback: () => void,
+) => () => void;
+
+export interface BranchMessageHubOptions {
+  scheduleFrame?: BranchMessageHubFrameClock;
+}
+
+type SnapshotMode = "initial" | "live" | "terminal";
+
 export class BranchMessageHub<TMessage extends Message = Message> {
   private readonly source: MessageReader<TMessage>;
+  private readonly frameScheduler: FrameScheduler;
   private readonly scopes = new Map<
     string,
     InternalBranchMessageScope<TMessage>
   >();
   private readonly trackingScopeIds = new Set<string>();
-  private readonly scopeIdsByMessageId = new Map<string, Set<string>>();
-  private messages: readonly TMessage[];
+  private readonly dirtyScopes = new Set<
+    InternalBranchMessageScope<TMessage>
+  >();
   private messagesById: ReadonlyMap<string, TMessage>;
   private positionsById: ReadonlyMap<string, number>;
   private readonly unsubscribe: () => void;
+  private sourceDirty = false;
+  private flushing = false;
+  private disposed = false;
 
-  constructor(source: MessageReader<TMessage>) {
+  constructor(
+    source: MessageReader<TMessage>,
+    options: BranchMessageHubOptions = {},
+  ) {
     this.source = source;
-    this.messages = source.getMessages();
-    this.messagesById = createMessageMap(this.messages);
-    this.positionsById = createPositionMap(this.messages);
+    this.frameScheduler = new FrameScheduler(
+      options.scheduleFrame ?? scheduleBrowserFrame,
+      this.flushFrame,
+    );
+    const messages = source.getMessages();
+    this.messagesById = createMessageMap(messages);
+    this.positionsById = createPositionMap(messages);
     this.unsubscribe = source.subscribe(this.handleSourceChange);
   }
 
   createScope(
     options: BranchMessageScopeOptions<TMessage>,
   ): BranchMessageScope<TMessage> {
+    if (this.disposed) {
+      throw new Error("Cannot create a scope on a disposed BranchMessageHub.");
+    }
+
     if (this.scopes.has(options.id)) {
       throw new Error(`Branch message scope "${options.id}" already exists.`);
+    }
+
+    // A frame may still be pending when a history scope is restored. Commit
+    // that pending source revision before the scope reads the hub index.
+    if (this.sourceDirty) {
+      this.reconcileSource();
     }
 
     const scope = new InternalBranchMessageScope<TMessage>(
       options,
       () => this.removeScope(options.id),
-      () => this.trackingScopeIds.delete(options.id),
+      () => this.stopTrackingScope(options.id),
     );
     this.scopes.set(scope.id, scope);
     if (scope.isTracking()) {
       this.trackingScopeIds.add(scope.id);
     }
-    scope.getIndexedMessageIds().forEach((messageId) => {
-      this.attachMessage(scope.id, messageId);
-    });
-    this.updateScope(scope);
+    this.updateScope(scope, "initial");
 
     return scope;
   }
 
   dispose() {
+    if (this.disposed) return;
+
+    this.disposed = true;
     this.unsubscribe();
+    this.frameScheduler.dispose();
+    this.sourceDirty = false;
+    this.dirtyScopes.clear();
     [...this.scopes.values()].forEach((scope) => scope.dispose());
     this.scopes.clear();
     this.trackingScopeIds.clear();
-    this.scopeIdsByMessageId.clear();
   }
 
   private readonly handleSourceChange = () => {
-    const previousMessages = this.messages;
+    if (this.disposed) return;
+
+    this.sourceDirty = true;
+    this.scheduleFlush();
+  };
+
+  private reconcileSource(terminalScopeId?: string) {
+    if (this.disposed) return;
+
+    this.sourceDirty = false;
     const previousMessagesById = this.messagesById;
-    const previousPositionsById = this.positionsById;
     const nextMessages = this.source.getMessages();
     const nextMessagesById = createMessageMap(nextMessages);
     const nextPositionsById = createPositionMap(nextMessages);
-    const affectedScopeIds = new Set<string>();
-    const addedMessageIds: string[] = [];
+    const addedMessageIds = nextMessages
+      .filter((message) => !previousMessagesById.has(message.id))
+      .map((message) => message.id);
 
-    nextMessages.forEach((message, index) => {
-      const previousMessage = previousMessagesById.get(message.id);
-
-      if (!previousMessage) {
-        addedMessageIds.push(message.id);
-      }
-
-      if (
-        previousMessage !== message ||
-        previousPositionsById.get(message.id) !== index
-      ) {
-        this.addAffectedScopes(message.id, affectedScopeIds);
-      }
-    });
-
-    previousMessages.forEach((message) => {
-      if (!nextMessagesById.has(message.id)) {
-        this.addAffectedScopes(message.id, affectedScopeIds);
-      }
-    });
+    this.messagesById = nextMessagesById;
+    this.positionsById = nextPositionsById;
 
     this.trackingScopeIds.forEach((scopeId) => {
       const scope = this.scopes.get(scopeId);
       if (!scope) return;
 
-      // Active messages may be mutated in place by an external store, so an
-      // upstream notification always invalidates the active projection.
-      affectedScopeIds.add(scope.id);
-
       addedMessageIds.forEach((messageId) => {
-        if (scope.trackMessage(messageId)) {
-          this.attachMessage(scope.id, messageId);
-        }
+        scope.trackMessage(messageId);
       });
+      this.updateScope(
+        scope,
+        scope.id === terminalScopeId ? "terminal" : "live",
+      );
     });
+  }
 
-    this.messages = nextMessages;
-    this.messagesById = nextMessagesById;
-    this.positionsById = nextPositionsById;
-
-    affectedScopeIds.forEach((scopeId) => {
-      const scope = this.scopes.get(scopeId);
-      if (scope) {
-        this.updateScope(scope);
-      }
-    });
-  };
-
-  private updateScope(scope: InternalBranchMessageScope<TMessage>) {
+  private updateScope(
+    scope: InternalBranchMessageScope<TMessage>,
+    mode: SnapshotMode,
+  ) {
     const messages = [...scope.getIndexedMessageIds()]
       .map((messageId) => this.messagesById.get(messageId))
       .filter((message): message is TMessage => Boolean(message))
@@ -146,21 +162,67 @@ export class BranchMessageHub<TMessage extends Message = Message> {
           (this.positionsById.get(right.id) ?? Number.MAX_SAFE_INTEGER),
       );
     const selectedMessages = scope.select(messages);
+    const liveMessageId = findLatestSelectedMessageId(
+      messages,
+      selectedMessages,
+    );
 
-    scope.setSnapshot(selectedMessages);
+    if (scope.setSnapshot(selectedMessages, mode, liveMessageId)) {
+      this.markScopeDirty(scope);
+    }
   }
 
-  private attachMessage(scopeId: string, messageId: string) {
-    const scopeIds = this.scopeIdsByMessageId.get(messageId) ?? new Set();
-    scopeIds.add(scopeId);
-    this.scopeIdsByMessageId.set(messageId, scopeIds);
+  private stopTrackingScope(scopeId: string) {
+    const scope = this.scopes.get(scopeId);
+    if (!scope || !scope.isTracking()) return;
+
+    // Commit the source's current value synchronously. Subscriber delivery is
+    // still frame-coalesced, but stop/cancel callers can read the terminal
+    // snapshot immediately and no final delta is lost.
+    if (this.sourceDirty) {
+      this.reconcileSource(scopeId);
+    } else {
+      this.updateScope(scope, "terminal");
+    }
+    this.trackingScopeIds.delete(scopeId);
   }
 
-  private addAffectedScopes(messageId: string, target: Set<string>) {
-    this.scopeIdsByMessageId.get(messageId)?.forEach((scopeId) => {
-      target.add(scopeId);
-    });
+  private markScopeDirty(scope: InternalBranchMessageScope<TMessage>) {
+    if (this.disposed || !scope.hasListeners()) return;
+
+    this.dirtyScopes.add(scope);
+    this.scheduleFlush();
   }
+
+  private scheduleFlush() {
+    if (
+      this.disposed ||
+      this.flushing ||
+      (!this.sourceDirty && this.dirtyScopes.size === 0)
+    ) {
+      return;
+    }
+
+    this.frameScheduler.request();
+  }
+
+  private readonly flushFrame = () => {
+    if (this.disposed || this.flushing) return;
+
+    this.flushing = true;
+    try {
+      if (this.sourceDirty) {
+        this.reconcileSource();
+      }
+
+      const scopes = [...this.dirtyScopes];
+      this.dirtyScopes.clear();
+      scopes.forEach((scope) => scope.notify());
+    } finally {
+      this.flushing = false;
+      this.scheduleFlush();
+    }
+  };
 
   private removeScope(scopeId: string) {
     const scope = this.scopes.get(scopeId);
@@ -168,15 +230,7 @@ export class BranchMessageHub<TMessage extends Message = Message> {
 
     this.scopes.delete(scopeId);
     this.trackingScopeIds.delete(scopeId);
-    scope.getIndexedMessageIds().forEach((messageId) => {
-      const scopeIds = this.scopeIdsByMessageId.get(messageId);
-      if (!scopeIds) return;
-
-      scopeIds.delete(scopeId);
-      if (scopeIds.size === 0) {
-        this.scopeIdsByMessageId.delete(messageId);
-      }
-    });
+    this.dirtyScopes.delete(scope);
   }
 }
 
@@ -193,9 +247,10 @@ class InternalBranchMessageScope<TMessage extends Message>
   private readonly onStopTracking: () => void;
   private readonly listeners = new Set<() => void>();
   private snapshot: readonly TMessage[] = [];
+  private messageSignatures: ReadonlyMap<string, string> = new Map();
+  private liveMessageId?: string;
   private tracking: boolean;
   private disposed = false;
-  private notificationScheduled = false;
 
   constructor(
     options: BranchMessageScopeOptions<TMessage>,
@@ -244,23 +299,27 @@ class InternalBranchMessageScope<TMessage extends Message>
   }
 
   stopTracking() {
-    if (!this.tracking) return;
+    if (!this.tracking || this.disposed) return;
 
-    this.tracking = false;
     this.onStopTracking();
+    this.tracking = false;
   }
 
   dispose() {
     if (this.disposed) return;
 
     this.disposed = true;
-    this.stopTracking();
+    this.tracking = false;
     this.listeners.clear();
     this.onDispose();
   }
 
   isTracking() {
     return this.tracking;
+  }
+
+  hasListeners() {
+    return this.listeners.size > 0;
   }
 
   getIndexedMessageIds() {
@@ -284,23 +343,147 @@ class InternalBranchMessageScope<TMessage extends Message>
     return this.selector ? this.selector(messages, this.context) : messages;
   }
 
-  setSnapshot(messages: readonly TMessage[]) {
-    if (areMessageListsEqual(this.snapshot, messages)) return;
+  setSnapshot(
+    messages: readonly TMessage[],
+    mode: SnapshotMode,
+    liveMessageId: string | undefined,
+  ) {
+    const materialized = materializeSnapshot(
+      this.snapshot,
+      this.messageSignatures,
+      messages,
+      mode,
+      this.liveMessageId,
+      liveMessageId,
+    );
+    this.messageSignatures = materialized.signatures;
+    this.liveMessageId = liveMessageId;
+    if (areMessageListsEqual(this.snapshot, materialized.messages)) {
+      return false;
+    }
 
-    this.snapshot = messages;
-    this.scheduleNotification();
+    this.snapshot = materialized.messages;
+    return true;
   }
 
-  private scheduleNotification() {
-    if (this.notificationScheduled || this.listeners.size === 0) return;
+  notify() {
+    if (this.disposed) return;
 
-    this.notificationScheduled = true;
-    queueMicrotask(() => {
-      this.notificationScheduled = false;
-      if (this.disposed) return;
-
-      [...this.listeners].forEach((listener) => listener());
+    const listeners = [...this.listeners];
+    listeners.forEach((listener) => {
+      if (this.listeners.has(listener)) {
+        listener();
+      }
     });
+  }
+}
+
+function materializeSnapshot<TMessage extends Message>(
+  previous: readonly TMessage[],
+  previousSignatures: ReadonlyMap<string, string>,
+  next: readonly TMessage[],
+  mode: SnapshotMode,
+  previousLiveMessageId: string | undefined,
+  nextLiveMessageId: string | undefined,
+): {
+  messages: readonly TMessage[];
+  signatures: ReadonlyMap<string, string>;
+} {
+  if (mode === "initial") {
+    const signatures = new Map<string, string>();
+    const messages = next.map((message) => {
+      const signature = createMessageSignature(message);
+      if (signature !== undefined) {
+        signatures.set(message.id, signature);
+      }
+      return cloneMessage(message);
+    });
+
+    return {
+      messages,
+      signatures,
+    };
+  }
+
+  const previousById = createMessageMap(previous);
+  const signatures = new Map<string, string>();
+
+  // AG-UI may clone the full list for one delta. Live frames only materialize
+  // the latest source message; the terminal pass uses signatures to keep
+  // unchanged identities while accepting a late correction to any message.
+  const messages = next.map((message) => {
+    const previousMessage = previousById.get(message.id);
+    const previousSignature = previousSignatures.get(message.id);
+    const isLiveMessage = message.id === nextLiveMessageId;
+    const isCompletingPreviousLiveMessage =
+      message.id === previousLiveMessageId &&
+      previousLiveMessageId !== nextLiveMessageId;
+    const shouldRefreshLiveMessage =
+      !previousMessage || isLiveMessage || isCompletingPreviousLiveMessage;
+    const shouldRefresh = mode === "terminal" || shouldRefreshLiveMessage;
+    const nextSignature =
+      shouldRefresh ? createMessageSignature(message) : undefined;
+    const canReuseMessage =
+      shouldRefresh &&
+      previousMessage &&
+      nextSignature !== undefined &&
+      previousSignature === nextSignature;
+
+    if (canReuseMessage) {
+      signatures.set(message.id, nextSignature);
+      return previousMessage;
+    }
+
+    if (shouldRefresh) {
+      if (nextSignature !== undefined) {
+        signatures.set(message.id, nextSignature);
+      }
+      return cloneMessage(message);
+    }
+
+    if (previousSignature !== undefined) {
+      signatures.set(message.id, previousSignature);
+    }
+    return previousMessage;
+  });
+
+  return {
+    messages,
+    signatures,
+  };
+}
+
+function cloneMessage<TMessage extends Message>(message: TMessage): TMessage {
+  return { ...message } as TMessage;
+}
+
+function findLatestSelectedMessageId<TMessage extends Message>(
+  sourceMessages: readonly TMessage[],
+  selectedMessages: readonly TMessage[],
+) {
+  if (sourceMessages === selectedMessages) {
+    return sourceMessages.at(-1)?.id;
+  }
+
+  const selectedIds = new Set(
+    selectedMessages.map((message) => message.id),
+  );
+
+  for (let index = sourceMessages.length - 1; index >= 0; index -= 1) {
+    const message = sourceMessages[index];
+    if (message && selectedIds.has(message.id)) {
+      return message.id;
+    }
+  }
+
+  return selectedMessages.at(-1)?.id;
+}
+
+function createMessageSignature(message: Message): string | undefined {
+  try {
+    return JSON.stringify(message);
+  } catch {
+    return undefined;
   }
 }
 
@@ -325,3 +508,92 @@ function areMessageListsEqual<TMessage extends Message>(
 
   return previous.every((message, index) => message === next[index]);
 }
+
+interface ScheduledFrameToken {
+  cancel?: () => void;
+}
+
+type FrameSchedulerState =
+  | { phase: "idle" }
+  | { phase: "scheduled"; token: ScheduledFrameToken }
+  | { phase: "disposed" };
+
+/**
+ * Owns the single pending redraw request. The injected clock follows the
+ * requestAnimationFrame contract: registration is synchronous, delivery is
+ * asynchronous. Production also uses an asynchronous timer fallback.
+ */
+class FrameScheduler {
+  private state: FrameSchedulerState = { phase: "idle" };
+
+  constructor(
+    private readonly scheduleFrame: BranchMessageHubFrameClock,
+    private readonly onFrame: () => void,
+  ) {}
+
+  request() {
+    if (this.state.phase !== "idle") return;
+
+    const token: ScheduledFrameToken = {};
+    this.state = { phase: "scheduled", token };
+
+    try {
+      const cancel = this.scheduleFrame(() => this.emit(token));
+      if (
+        this.state.phase === "scheduled" &&
+        this.state.token === token
+      ) {
+        token.cancel = cancel;
+      } else {
+        cancel();
+      }
+    } catch (error) {
+      if (
+        this.state.phase === "scheduled" &&
+        this.state.token === token
+      ) {
+        this.state = { phase: "idle" };
+      }
+      throw error;
+    }
+  }
+
+  dispose() {
+    if (this.state.phase === "disposed") return;
+
+    const cancel =
+      this.state.phase === "scheduled"
+        ? this.state.token.cancel
+        : undefined;
+    this.state = { phase: "disposed" };
+    cancel?.();
+  }
+
+  private emit(token: ScheduledFrameToken) {
+    if (
+      this.state.phase !== "scheduled" ||
+      this.state.token !== token
+    ) {
+      return;
+    }
+
+    this.state = { phase: "idle" };
+    this.onFrame();
+  }
+}
+
+const scheduleBrowserFrame: BranchMessageHubFrameClock = (callback) => {
+  if (typeof globalThis.requestAnimationFrame === "function") {
+    const frameId = globalThis.requestAnimationFrame(callback);
+
+    return () => {
+      globalThis.cancelAnimationFrame?.(frameId);
+    };
+  }
+
+  const timeoutId = globalThis.setTimeout(callback, 16);
+
+  return () => {
+    globalThis.clearTimeout(timeoutId);
+  };
+};
