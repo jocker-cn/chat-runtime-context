@@ -1,5 +1,5 @@
 import type { Message } from "@ag-ui/client";
-import { useId } from "react";
+import {useEffect, useId} from "react";
 import {
   createFrameRenderer,
   useSelectBranch,
@@ -12,6 +12,7 @@ import {
   isThinkingActivityMessage,
   type ThinkingActivityPhase,
 } from "./thinkingActivity";
+import { ApiRequestAction } from "./ApiRequestAction";
 
 export const demoRenderer = createFrameRenderer<DemoMessage>({
   cards: {
@@ -51,7 +52,9 @@ function AssistantMessageCard({
   const selectBranch = useSelectBranch();
   const isSelected = context.isSelectedBranch;
   const contentId = useId();
-
+  useEffect(() => {
+    console.log({message})
+  }, []);
   return (
     <article
       className="message-card message-card-assistant"
@@ -65,6 +68,7 @@ function AssistantMessageCard({
           actions={message.actions}
         />
       </div>
+      <ApiRequestAction />
       <div className="message-card-actions">
         <button
           type="button"
@@ -87,7 +91,6 @@ function AssistantMessageCard({
 
 function ReasoningMessageCard({ message }: FrameCardProps<DemoMessage>) {
   const contentId = useId();
-
   return (
     <article
       className="message-card message-card-reasoning"

@@ -393,6 +393,48 @@ p {
   cursor: default;
 }
 
+.api-request-action {
+  align-items: flex-start;
+  border-top: 1px solid #e3e7ec;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.api-request-status,
+.api-request-error {
+  align-self: center;
+  font-size: 13px;
+  margin: 0;
+}
+
+.api-request-status {
+  color: #526475;
+}
+
+.api-request-error {
+  color: #9b2c2c;
+}
+
+.api-request-result {
+  border-radius: 6px;
+  background: #182026;
+  color: #e8f0f3;
+  flex-basis: 100%;
+  font-size: 12px;
+  margin: 2px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+}
+
+.api-request-result code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
 .empty {
   color: #6c7b8b;
 }
