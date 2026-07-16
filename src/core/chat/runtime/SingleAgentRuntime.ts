@@ -29,6 +29,10 @@ export interface SingleAgentRuntimeOptions<
   branchLabel?: string;
   sourceId?: string;
   metadata?: TSourceMetadata;
+  /**
+   * Restores Turn topology only. AG-UI history must already be present in the
+   * Source messageReader backed by the same Agent.
+   */
   historyMessages?: readonly TMessage[];
 }
 

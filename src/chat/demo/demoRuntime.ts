@@ -80,8 +80,8 @@ export interface DemoRuntimeController<
   runtime: TRuntime;
   queue: SubmissionQueue<DemoSubmission>;
   scheduler: QueueScheduler<DemoSubmission>;
-  deleteLastTurn(): void;
-  dispose(): void;
+  deleteLastTurn(): Promise<void>;
+  dispose(): Promise<void>;
 }
 
 export interface DemoSubmission {
@@ -223,17 +223,15 @@ function createDemoRuntimeController<
     runtime,
     queue,
     scheduler,
-    deleteLastTurn: () => {
-      deleteLastTurn(runtime);
-    },
-    dispose: () => {
+    deleteLastTurn: () => deleteLastTurn(runtime),
+    dispose: async () => {
       scheduler.dispose();
-      runtime.dispose();
+      await runtime.dispose();
     },
   };
 }
 
-function deleteLastTurn(
+async function deleteLastTurn(
   runtime: CompareChatRuntime<string, Message>,
 ) {
   const snapshot = runtime.getSnapshot();
@@ -242,7 +240,7 @@ function deleteLastTurn(
     return;
   }
 
-  runtime.removeTurn(turnId, {
+  await runtime.removeTurn(turnId, {
     deleteMessages: true,
     includeInput: true,
   });
@@ -336,6 +334,11 @@ pnpm release:check --id 2131 --strict
 
 function createSingleAgentMockHistory(): DemoMessage[] {
   return [
+    {
+      id: "history-single-0:assistant",
+      role: "assistant",
+      content: "test",
+    },
     {
       id: "history-single-1:user",
       role: "user",

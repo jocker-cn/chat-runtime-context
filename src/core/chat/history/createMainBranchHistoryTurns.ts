@@ -10,6 +10,7 @@ export interface CreateMainBranchHistoryTurnsOptions<
   TTurnMetadata extends ChatMetadata = ChatMetadata,
   TBranchMetadata extends ChatMetadata = ChatMetadata,
 > {
+  /** Transcript used to derive Turn boundaries and Branch message IDs. */
   messages: readonly TMessage[];
   sourceBranchId?: string;
   branchLabel?: string;
@@ -31,7 +32,8 @@ export type HistoryInputMessagePredicate<TMessage extends Message = Message> = (
 export interface HistoryBranchMessageContext<
   TMessage extends Message = Message,
 > {
-  inputMessage: TMessage;
+  inputMessage?: TMessage;
+  turnAnchorMessage: TMessage;
   turnIndex: number;
   messageIndex: number;
   messages: readonly TMessage[];
@@ -45,12 +47,12 @@ export type HistoryBranchMessagePredicate<
 ) => boolean;
 
 export type HistoryTurnIdFactory<TMessage extends Message = Message> = (
-  inputMessage: TMessage,
+  turnAnchorMessage: TMessage,
   turnIndex: number,
 ) => string;
 
 export type HistoryCreatedAtFactory<TMessage extends Message = Message> = (
-  inputMessage: TMessage,
+  turnAnchorMessage: TMessage,
   turnIndex: number,
 ) => number | undefined;
 
@@ -58,7 +60,7 @@ export type HistoryTurnMetadataFactory<
   TMessage extends Message = Message,
   TTurnMetadata extends ChatMetadata = ChatMetadata,
 > = (
-  inputMessage: TMessage,
+  turnAnchorMessage: TMessage,
   turnIndex: number,
 ) => TTurnMetadata | undefined;
 
@@ -66,7 +68,7 @@ export type HistoryBranchMetadataFactory<
   TMessage extends Message = Message,
   TBranchMetadata extends ChatMetadata = ChatMetadata,
 > = (
-  inputMessage: TMessage,
+  turnAnchorMessage: TMessage,
   turnIndex: number,
 ) => TBranchMetadata | undefined;
 
@@ -74,7 +76,7 @@ export type HistorySelectionFactory<
   TMessage extends Message = Message,
   TBranchMetadata extends ChatMetadata = ChatMetadata,
 > = (
-  inputMessage: TMessage,
+  turnAnchorMessage: TMessage,
   turnIndex: number,
 ) => ChatBranchSelectionInput<TBranchMetadata> | undefined;
 
@@ -108,24 +110,25 @@ export function createMainBranchHistoryTurns<
     TBranchMetadata
   >[] = [];
   let activeInput: TMessage | undefined;
+  let activeTurnAnchor: TMessage | undefined;
   let activeMessageIds: string[] = [];
 
   const flushActiveTurn = () => {
-    if (!activeInput || activeMessageIds.length === 0) {
+    if (!activeTurnAnchor) {
       return;
     }
 
     const turnIndex = turns.length;
     turns.push({
-      id: createTurnId(activeInput, turnIndex),
+      id: createTurnId(activeTurnAnchor, turnIndex),
       sourceBranchId,
       inputMessage: activeInput,
       messageIds: activeMessageIds,
-      createdAt: getCreatedAt?.(activeInput, turnIndex),
-      metadata: getTurnMetadata?.(activeInput, turnIndex),
+      createdAt: getCreatedAt?.(activeTurnAnchor, turnIndex),
+      metadata: getTurnMetadata?.(activeTurnAnchor, turnIndex),
       branchLabel,
-      branchMetadata: getBranchMetadata?.(activeInput, turnIndex),
-      selection: getSelection?.(activeInput, turnIndex),
+      branchMetadata: getBranchMetadata?.(activeTurnAnchor, turnIndex),
+      selection: getSelection?.(activeTurnAnchor, turnIndex),
     });
   };
 
@@ -133,17 +136,32 @@ export function createMainBranchHistoryTurns<
     if (isInputMessage(message, messageIndex, messages)) {
       flushActiveTurn();
       activeInput = message;
+      activeTurnAnchor = message;
       activeMessageIds = [];
       return;
     }
 
-    if (!activeInput) {
+    if (!activeTurnAnchor) {
+      if (
+        isBranchMessage(message, {
+          inputMessage: undefined,
+          turnAnchorMessage: message,
+          turnIndex: turns.length,
+          messageIndex,
+          messages,
+        })
+      ) {
+        activeInput = undefined;
+        activeTurnAnchor = message;
+        activeMessageIds = [message.id];
+      }
       return;
     }
 
     if (
       isBranchMessage(message, {
         inputMessage: activeInput,
+        turnAnchorMessage: activeTurnAnchor,
         turnIndex: turns.length,
         messageIndex,
         messages,
@@ -163,5 +181,10 @@ const defaultIsInputMessage: HistoryInputMessagePredicate = (message) =>
 
 const defaultIsBranchMessage: HistoryBranchMessagePredicate = () => true;
 
-const defaultCreateTurnId: HistoryTurnIdFactory = (inputMessage, turnIndex) =>
-  inputMessage.id ? `history-${inputMessage.id}` : `history-${turnIndex + 1}`;
+const defaultCreateTurnId: HistoryTurnIdFactory = (
+  turnAnchorMessage,
+  turnIndex,
+) =>
+  turnAnchorMessage.id
+    ? `history-${turnAnchorMessage.id}`
+    : `history-${turnIndex + 1}`;

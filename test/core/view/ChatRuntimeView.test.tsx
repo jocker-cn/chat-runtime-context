@@ -70,6 +70,11 @@ describe("ChatRuntimeView response grouping", () => {
       source,
       branchId: "main",
       historyMessages: messages,
+      createInputMessage: (input, turnId) => ({
+        id: `${turnId}:input`,
+        role: "user",
+        content: input,
+      }),
     });
 
     render(

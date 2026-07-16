@@ -173,8 +173,10 @@ function useDemoRuntimeControllers(websocketUrl: string) {
     setDemos(nextDemos);
 
     return () => {
-      compareDemo.dispose();
-      singleDemo.dispose();
+      void Promise.allSettled([
+        compareDemo.dispose(),
+        singleDemo.dispose(),
+      ]);
     };
   }, [websocketUrl]);
 

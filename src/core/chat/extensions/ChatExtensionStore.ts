@@ -104,5 +104,5 @@ export function useChatExtension<T>(
 }
 
 function createStoreKey(target: ExtensionTarget, key: string) {
-  return `${target.scope}:${target.id}:${key}`;
+  return JSON.stringify([target.scope, target.id, key]);
 }

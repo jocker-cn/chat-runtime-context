@@ -10,6 +10,10 @@ import {
   type ChatSourceRunContext,
 } from "../../../../src/core";
 
+interface TestPayload {
+  text: string;
+}
+
 describe("createChatRuntimeQueueTarget", () => {
   it("keeps later submissions queued until the active turn completes", async () => {
     const source = new ControlledAnswerSource();
@@ -21,10 +25,10 @@ describe("createChatRuntimeQueueTarget", () => {
         content: input,
       }),
     });
-    const queue = createSubmissionQueue<{ text: string }>();
+    const queue = createSubmissionQueue<TestPayload>();
     const scheduler = createQueueScheduler({
       queue,
-      target: createChatRuntimeQueueTarget({
+      target: createChatRuntimeQueueTarget<TestPayload, string>({
         runtime,
         toInput: (item) => item.payload.text,
       }),
@@ -63,16 +67,23 @@ describe("createChatRuntimeQueueTarget", () => {
     );
 
     scheduler.dispose();
-    runtime.dispose();
+    await runtime.dispose();
   });
 
   it("blocks queued submissions after a runtime error by default", async () => {
     const source = new ControlledAnswerSource();
-    const runtime = new SingleAgentRuntime<string, Message>({ source });
-    const queue = createSubmissionQueue<{ text: string }>();
+    const runtime = new SingleAgentRuntime<string, Message>({
+      source,
+      createInputMessage: (input, turnId) => ({
+        id: `${turnId}:input`,
+        role: "user",
+        content: input,
+      }),
+    });
+    const queue = createSubmissionQueue<TestPayload>();
     const scheduler = createQueueScheduler({
       queue,
-      target: createChatRuntimeQueueTarget({
+      target: createChatRuntimeQueueTarget<TestPayload, string>({
         runtime,
         toInput: (item) => item.payload.text,
       }),
@@ -93,7 +104,7 @@ describe("createChatRuntimeQueueTarget", () => {
     expect(source.inputs).toEqual(["first"]);
 
     scheduler.dispose();
-    runtime.dispose();
+    await runtime.dispose();
   });
 });
 

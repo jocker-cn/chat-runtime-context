@@ -22,7 +22,7 @@ import { BranchMessageHub } from "./BranchMessageHub";
 export type ChatInputMessageFactory<
   TInput,
   TMessage extends Message,
-> = (input: TInput, turnId: string) => TMessage | undefined;
+> = (input: TInput, turnId: string) => TMessage;
 
 export interface CompareChatRuntimeOptions<
   TInput = unknown,
@@ -33,7 +33,7 @@ export interface CompareChatRuntimeOptions<
 > {
   threadId?: string;
   sources: readonly AnswerSourceConfig<TInput, TMessage, TSourceMetadata>[];
-  createInputMessage?: ChatInputMessageFactory<TInput, TMessage>;
+  createInputMessage: ChatInputMessageFactory<TInput, TMessage>;
   createTurnId?: () => string;
   createBranchId?: (
     source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
@@ -63,6 +63,7 @@ export interface CompareChatRuntimeHistoryTurn<
   sourceBranchId?: string;
   inputMessage?: TMessage;
   inputMessageId?: string;
+  /** IDs projected from the matching Source messageReader. */
   messageIds: readonly string[];
   createdAt?: number;
   metadata?: TTurnMetadata;
@@ -79,9 +80,24 @@ interface ActiveBranchRun<
   source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>;
   context: ChatSourceRunContext<TSourceMetadata>;
   controller: AbortController;
-  messageStore?: MessageStore<TMessage>;
   messageScope?: BranchMessageScope<TMessage>;
+  phase: "running" | "cancelling";
+  cancellation?: Promise<void>;
 }
+
+interface ResolvedSourceEntry<
+  TInput,
+  TMessage extends Message,
+  TSourceMetadata extends ChatMetadata,
+> {
+  source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>;
+  index: number;
+  sourceBranchId: string;
+}
+
+type BranchRunOutcome =
+  | { status: "completed" }
+  | { status: "error"; error: unknown };
 
 export interface RemoveChatTurnOptions {
   deleteMessages?: boolean;
@@ -100,15 +116,16 @@ export class CompareChatRuntime<
     TMessage,
     TSourceMetadata
   >[];
-  private readonly createInputMessage?: ChatInputMessageFactory<
+  private readonly sourceEntries: readonly ResolvedSourceEntry<
+    TInput,
+    TMessage,
+    TSourceMetadata
+  >[];
+  private readonly createInputMessage: ChatInputMessageFactory<
     TInput,
     TMessage
   >;
   private readonly createTurnId: () => string;
-  private readonly createBranchId: (
-    source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
-    index: number,
-  ) => string;
   private readonly getTurnMetadata?: (
     input: TInput,
     options?: ChatRunOptions<TMessage>,
@@ -133,6 +150,10 @@ export class CompareChatRuntime<
     MessageReader<TMessage>,
     BranchMessageHub<TMessage>
   >();
+  private lifecyclePhase: "open" | "resetting" | "disposing" | "closed" =
+    "open";
+  private resetPromise?: Promise<void>;
+  private disposePromise?: Promise<void>;
 
   constructor(
     options: CompareChatRuntimeOptions<
@@ -154,12 +175,25 @@ export class CompareChatRuntime<
       }),
     );
 
-    this.sources = options.sources;
+    if (options.sources.length === 0) {
+      throw new Error("ChatRuntime requires at least one answer source.");
+    }
+    if (typeof options.createInputMessage !== "function") {
+      throw new Error("ChatRuntime requires createInputMessage.");
+    }
+
+    this.sources = [...options.sources];
     this.createInputMessage = options.createInputMessage;
     this.createTurnId = options.createTurnId ?? createDefaultId("turn");
-    this.createBranchId =
+    const createBranchId =
       options.createBranchId ??
       ((source, index) => source.branchId ?? source.source.id ?? `branch-${index + 1}`);
+    this.sourceEntries = this.sources.map((source, index) => ({
+      source,
+      index,
+      sourceBranchId: createBranchId(source, index),
+    }));
+    assertUniqueSourceBranchIds(this.sourceEntries);
     this.getTurnMetadata = options.getTurnMetadata;
     this.getBranchMetadata = options.getBranchMetadata;
 
@@ -172,7 +206,7 @@ export class CompareChatRuntime<
     input: TInput,
     options: ChatRunOptions<TMessage> = {},
   ): Promise<ChatRunHandle> {
-    this.assertNotDisposed();
+    this.assertOperational();
 
     if (this.snapshot.status === "running") {
       throw new Error(
@@ -181,20 +215,35 @@ export class CompareChatRuntime<
     }
 
     const turnId = options.turnId ?? this.createTurnId();
+    if (this.snapshot.turnsById[turnId]) {
+      throw new Error(`Turn "${turnId}" already exists.`);
+    }
+
     const sourceEntries = this.resolveSourceEntries(options.branchIds);
     const inputMessage =
-      options.inputMessage ?? this.createInputMessage?.(input, turnId);
+      options.inputMessage ?? this.createInputMessage(input, turnId);
+    if (!inputMessage) {
+      throw new Error("createInputMessage must return a message.");
+    }
     const branchEntries = sourceEntries.map((entry) => ({
       ...entry,
       branchId: createRuntimeBranchId(turnId, entry.sourceBranchId),
     }));
     const branchIds = branchEntries.map(({ branchId }) => branchId);
+    const existingBranchId = branchIds.find(
+      (branchId) => this.snapshot.branchesById[branchId],
+    );
+    if (existingBranchId) {
+      throw new Error(`Branch "${existingBranchId}" already exists.`);
+    }
 
     const turn: ChatTurn<TMessage, TTurnMetadata> = {
       id: turnId,
       inputMessage,
-      inputMessageId: inputMessage?.id,
+      inputMessageId: inputMessage.id,
       branchIds,
+      selectedBranchId:
+        branchIds.length === 1 ? branchIds[0] : undefined,
       createdAt: Date.now(),
       metadata: this.getTurnMetadata?.(input, options),
     };
@@ -221,11 +270,11 @@ export class CompareChatRuntime<
               threadId: this.snapshot.threadId,
               turnId,
               branchId: entry.branchId,
-              anchorMessageId: inputMessage?.id,
+              anchorMessageId: inputMessage.id,
             },
             selector: entry.source.source.selectMessages,
             baselineMessages: sourceMessageReader.getMessages(),
-            inputMessageIds: inputMessage ? [inputMessage.id] : [],
+            inputMessageIds: [inputMessage.id],
             trackNewMessages: true,
           })
         : undefined;
@@ -259,7 +308,7 @@ export class CompareChatRuntime<
           turnId,
           label: source.label ?? source.source.label,
           sourceId: source.sourceId ?? source.source.id ?? sourceBranchId,
-          anchorMessageId: inputMessage?.id,
+          anchorMessageId: inputMessage.id,
           messageReader,
           selectMessages,
           status: "idle",
@@ -270,11 +319,24 @@ export class CompareChatRuntime<
       ]),
     );
 
-    branchRunEntries.forEach(({ branchId, source, messageScope }) => {
+    branchRunEntries.forEach(({
+      branchId,
+      source,
+      controller,
+      context,
+      messageScope,
+    }) => {
       this.branchSourcesById.set(branchId, source);
       if (messageScope) {
         this.branchMessageScopesById.set(branchId, messageScope);
       }
+      this.activeRuns.set(branchId, {
+        source,
+        context,
+        controller,
+        messageScope,
+        phase: "running",
+      });
     });
 
     this.patchSnapshot({
@@ -296,19 +358,17 @@ export class CompareChatRuntime<
       source,
       branchId,
       messageStore,
-      controller,
       context,
-      messageScope,
     }) => {
-      this.startBranchRun(
-        input,
-        branchId,
-        source,
-        controller,
-        context,
-        messageStore,
-        messageScope,
-      );
+      if (this.activeRuns.get(branchId)?.phase === "running") {
+        void this.consumeSource(
+          input,
+          branchId,
+          source,
+          context,
+          messageStore,
+        );
+      }
     });
 
     return {
@@ -317,48 +377,87 @@ export class CompareChatRuntime<
     };
   }
 
-  public override cancel(target?: {
+  public override async cancel(target?: {
     turnId?: string;
     branchId?: string;
-  }): void {
-    this.assertNotDisposed();
+  }): Promise<void> {
+    this.assertOperational();
+    await this.cancelRuns(target);
+  }
 
+  private async cancelRuns(target?: {
+    turnId?: string;
+    branchId?: string;
+  }): Promise<void> {
     const runs = [...this.activeRuns.entries()].filter(
       ([branchId, run]) =>
         (!target?.branchId || branchId === target.branchId) &&
         (!target?.turnId || run.context.turnId === target.turnId),
     );
-
-    runs.forEach(([branchId, run]) => {
-      run.controller.abort();
-      run.messageScope?.stopTracking();
-      void run.source.source.cancel?.(run.context);
-      this.activeRuns.delete(branchId);
-      this.updateBranch(branchId, {
-        status: "cancelled",
-      });
-    });
+    const results = await Promise.allSettled(
+      runs.map(([branchId, run]) =>
+        this.cancelBranchRun(branchId, run),
+      ),
+    );
 
     this.refreshRuntimeStatus();
+    throwRejectedResults(results, "Failed to cancel chat source runs.");
   }
 
-  public removeTurn(
+  private cancelBranchRun(
+    branchId: string,
+    run: ActiveBranchRun<TInput, TMessage, TSourceMetadata>,
+  ) {
+    if (run.cancellation) {
+      return run.cancellation;
+    }
+
+    run.phase = "cancelling";
+    const cancellation = Promise.resolve().then(async () => {
+      try {
+        run.controller.abort();
+        await run.source.source.cancel?.(run.context);
+      } finally {
+        if (this.activeRuns.get(branchId) === run) {
+          run.messageScope?.stopTracking();
+          this.activeRuns.delete(branchId);
+          this.updateBranch(branchId, {
+            status: "cancelled",
+          });
+          this.refreshRuntimeStatus();
+        }
+      }
+    });
+    run.cancellation = cancellation;
+    return cancellation;
+  }
+
+  public async removeTurn(
     turnId: string,
     options: RemoveChatTurnOptions = {},
-  ): void {
-    this.assertNotDisposed();
+  ): Promise<void> {
+    this.assertOperational();
 
     const turn = this.snapshot.turnsById[turnId];
     if (!turn) {
       return;
     }
 
-    this.cancel({ turnId });
+    const errors: unknown[] = [];
+    try {
+      await this.cancelRuns({ turnId });
+    } catch (error) {
+      errors.push(error);
+    }
 
     if (options.deleteMessages) {
-      this.deleteTurnMessages(turn, {
-        includeInput: options.includeInput ?? true,
-      });
+      try {
+        await this.deleteTurnMessages(turn, {
+          includeInput: options.includeInput ?? true,
+        });
+      } catch (error) {
+        errors.push(error);
+      }
     }
 
     const turnsById = { ...this.snapshot.turnsById };
@@ -382,6 +481,7 @@ export class CompareChatRuntime<
           : this.snapshot.activeTurnId,
     });
     this.refreshRuntimeStatus();
+    throwCollectedErrors(errors, `Failed to remove turn "${turnId}".`);
   }
 
   public override selectBranch(
@@ -389,7 +489,7 @@ export class CompareChatRuntime<
     branchId: string,
     selection: ChatBranchSelectionInput = {},
   ): void {
-    this.assertNotDisposed();
+    this.assertOperational();
 
     const turn = this.snapshot.turnsById[turnId];
     const branch = this.snapshot.branchesById[branchId];
@@ -418,42 +518,130 @@ export class CompareChatRuntime<
     });
   }
 
-  public override dispose(): void {
-    [...this.activeRuns.keys()].forEach((branchId) => {
-      this.cancel({ branchId });
-    });
+  public override dispose(): Promise<void> {
+    if (!this.disposePromise) {
+      const pendingReset = this.resetPromise;
+      this.lifecyclePhase = "disposing";
+      this.disposePromise = this.disposeAfterReset(pendingReset);
+    }
 
-    this.branchMessageScopesById.forEach((scope) => scope.dispose());
-    this.branchMessageScopesById.clear();
-    this.messageHubs.forEach((hub) => hub.dispose());
-    this.messageHubs.clear();
-
-    this.sources.forEach(({ source }) => {
-      void source.dispose?.();
-    });
-
-    super.dispose();
+    return this.disposePromise;
   }
 
-  public override reset(options: ChatRuntimeResetOptions = {}): void {
-    this.cancel();
+  private async disposeAfterReset(pendingReset?: Promise<void>) {
+    const errors: unknown[] = [];
+    if (pendingReset) {
+      try {
+        await pendingReset;
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    try {
+      await this.disposeRuntime();
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      this.lifecyclePhase = "closed";
+    }
+
+    throwCollectedErrors(errors, "Failed to dispose ChatRuntime.");
+  }
+
+  private async disposeRuntime() {
+    const errors: unknown[] = [];
+    try {
+      await this.cancelRuns();
+    } catch (error) {
+      errors.push(error);
+    }
+
     this.branchMessageScopesById.forEach((scope) => scope.dispose());
     this.branchMessageScopesById.clear();
     this.branchSourcesById.clear();
-    super.reset(options);
+    this.messageHubs.forEach((hub) => hub.dispose());
+    this.messageHubs.clear();
+
+    const sources = [...new Set(this.sources.map(({ source }) => source))];
+    const disposeResults = await Promise.allSettled(
+      sources.map((source) =>
+        Promise.resolve().then(() => source.dispose?.()),
+      ),
+    );
+    collectRejectedResults(disposeResults, errors);
+
+    try {
+      super.dispose();
+    } catch (error) {
+      errors.push(error);
+    }
+
+    throwCollectedErrors(errors, "Failed to dispose ChatRuntime.");
+  }
+
+  public override async reset(
+    options: ChatRuntimeResetOptions = {},
+  ): Promise<void> {
+    this.assertOperational();
+    this.lifecyclePhase = "resetting";
+    const resetPromise = this.resetRuntime(options);
+    this.resetPromise = resetPromise;
+
+    await resetPromise;
+  }
+
+  private async resetRuntime(options: ChatRuntimeResetOptions) {
+    const errors: unknown[] = [];
+    try {
+      try {
+        await this.cancelRuns();
+      } catch (error) {
+        errors.push(error);
+      }
+
+      this.branchMessageScopesById.forEach((scope) => scope.dispose());
+      this.branchMessageScopesById.clear();
+      this.branchSourcesById.clear();
+      super.reset(options);
+      throwCollectedErrors(errors, "Failed to reset ChatRuntime.");
+    } finally {
+      this.resetPromise = undefined;
+      if (this.lifecyclePhase === "resetting") {
+        this.lifecyclePhase = "open";
+      }
+    }
   }
 
   private resolveSourceEntries(branchIds?: readonly string[]) {
-    return this.sources
-      .map((source, index) => ({
-        source,
-        index,
-        sourceBranchId: this.createBranchId(source, index),
-      }))
-      .filter(
-        ({ sourceBranchId }) =>
-          !branchIds || branchIds.includes(sourceBranchId),
+    if (branchIds === undefined) {
+      return this.sourceEntries;
+    }
+
+    if (branchIds.length === 0) {
+      throw new Error("Chat run must target at least one source branch.");
+    }
+
+    const requestedBranchIds = new Set(branchIds);
+    if (requestedBranchIds.size !== branchIds.length) {
+      throw new Error("Chat run source branch IDs must be unique.");
+    }
+
+    const knownBranchIds = new Set(
+      this.sourceEntries.map(({ sourceBranchId }) => sourceBranchId),
+    );
+    const unknownBranchIds = branchIds.filter(
+      (branchId) => !knownBranchIds.has(branchId),
+    );
+    if (unknownBranchIds.length > 0) {
+      throw new Error(
+        `Unknown source branch ID${unknownBranchIds.length === 1 ? "" : "s"}: ${unknownBranchIds.join(", ")}.`,
       );
+    }
+
+    return this.sourceEntries.filter(({ sourceBranchId }) =>
+      requestedBranchIds.has(sourceBranchId),
+    );
   }
 
   private initializeHistoryTurns(
@@ -467,8 +655,13 @@ export class CompareChatRuntime<
     const turnIds = [...this.snapshot.turnIds];
     const turnsById = { ...this.snapshot.turnsById };
     const branchesById = { ...this.snapshot.branchesById };
+    const seenTurnIds = new Set(turnIds);
+    const seenBranchIds = new Set(Object.keys(branchesById));
+    const historyEntries = historyTurns.map((historyTurn) => {
+      if (seenTurnIds.has(historyTurn.id)) {
+        throw new Error(`History turn "${historyTurn.id}" is duplicated.`);
+      }
 
-    historyTurns.forEach((historyTurn) => {
       const sourceEntry = historyTurn.sourceBranchId
         ? sourceEntries.find(
             (entry) => entry.sourceBranchId === historyTurn.sourceBranchId,
@@ -485,6 +678,16 @@ export class CompareChatRuntime<
         historyTurn.id,
         sourceEntry.sourceBranchId,
       );
+      if (seenBranchIds.has(branchId)) {
+        throw new Error(`History branch "${branchId}" is duplicated.`);
+      }
+
+      seenTurnIds.add(historyTurn.id);
+      seenBranchIds.add(branchId);
+      return { historyTurn, sourceEntry, branchId };
+    });
+
+    historyEntries.forEach(({ historyTurn, sourceEntry, branchId }) => {
       const inputMessageId =
         historyTurn.inputMessage?.id ?? historyTurn.inputMessageId;
       const sourceMessageReader = sourceEntry.source.source.messageReader;
@@ -558,26 +761,6 @@ export class CompareChatRuntime<
     });
   }
 
-  private startBranchRun(
-    input: TInput,
-    branchId: string,
-    source: AnswerSourceConfig<TInput, TMessage, TSourceMetadata>,
-    controller: AbortController,
-    context: ChatSourceRunContext<TSourceMetadata>,
-    messageStore?: MessageStore<TMessage>,
-    messageScope?: BranchMessageScope<TMessage>,
-  ) {
-    this.activeRuns.set(branchId, {
-      source,
-      context,
-      controller,
-      messageStore,
-      messageScope,
-    });
-
-    void this.consumeSource(input, branchId, source, context, messageStore);
-  }
-
   private async consumeSource(
     input: TInput,
     branchId: string,
@@ -585,6 +768,8 @@ export class CompareChatRuntime<
     context: ChatSourceRunContext<TSourceMetadata>,
     messageStore?: MessageStore<TMessage>,
   ) {
+    let outcome: BranchRunOutcome | undefined;
+
     try {
       for await (const event of sourceConfig.source.run(input, context)) {
         if (context.signal.aborted) {
@@ -610,62 +795,83 @@ export class CompareChatRuntime<
         }
 
         if (event.type === "branch-completed") {
-          this.updateBranch(branchId, {
-            status: "completed",
-          });
+          outcome ??= { status: "completed" };
           continue;
         }
 
-        this.updateBranch(branchId, {
+        outcome = {
           status: "error",
           error: event.error,
-        });
+        };
       }
     } catch (error) {
       if (!context.signal.aborted) {
-        this.updateBranch(branchId, {
+        outcome = {
           status: "error",
           error,
-        });
+        };
       }
     } finally {
       const activeRun = this.activeRuns.get(branchId);
-      if (activeRun) {
+      if (activeRun?.phase === "running") {
+        // AG-UI emits run-finished before its finalization hook completes.
+        // Commit the last reader value only after the iterator closes so a
+        // final onFinalize message update cannot be dropped.
         activeRun.messageScope?.stopTracking();
         this.activeRuns.delete(branchId);
+        this.updateBranch(
+          branchId,
+          outcome?.status === "error"
+            ? {
+                status: "error",
+                error: outcome.error,
+              }
+            : {
+                status: "completed",
+                error: undefined,
+              },
+        );
         this.refreshRuntimeStatus();
       }
     }
   }
 
-  private deleteTurnMessages(
+  private async deleteTurnMessages(
     turn: ChatTurn<TMessage, TTurnMetadata>,
     options: {
       includeInput: boolean;
     },
   ) {
-    turn.branchIds.forEach((branchId) => {
-      const branch = this.snapshot.branchesById[branchId];
-      const source = this.branchSourcesById.get(branchId);
-      const messageScope = this.branchMessageScopesById.get(branchId);
-      const messageIds =
-        messageScope?.getMessageIds({
-          includeInput: options.includeInput,
-        }) ?? new Set<string>();
+    const results = await Promise.allSettled(
+      turn.branchIds.map(async (branchId) => {
+        const branch = this.snapshot.branchesById[branchId];
+        const source = this.branchSourcesById.get(branchId);
+        const messageScope = this.branchMessageScopesById.get(branchId);
+        const messageIds =
+          messageScope?.getMessageIds({
+            includeInput: options.includeInput,
+          }) ?? new Set<string>();
 
-      if (branch && source && messageIds.size > 0) {
-        void source.source.deleteMessages?.([...messageIds], {
-          threadId: this.snapshot.threadId,
-          turnId: turn.id,
-          branchId,
-          sourceId: branch.sourceId ?? source.sourceId ?? source.source.id,
-        });
-      }
+        if (branch && source && messageIds.size > 0) {
+          await source.source.deleteMessages?.([...messageIds], {
+            threadId: this.snapshot.threadId,
+            turnId: turn.id,
+            branchId,
+            sourceId:
+              branch.sourceId ?? source.sourceId ?? source.source.id,
+          });
+        }
 
-      if (branch && isMessageStore<TMessage>(branch.messageReader)) {
-        branch.messageReader.setMessages([]);
-      }
-    });
+        if (branch && isMessageStore<TMessage>(branch.messageReader)) {
+          branch.messageReader.setMessages([]);
+        }
+      }),
+    );
+
+    throwRejectedResults(
+      results,
+      `Failed to delete messages for turn "${turn.id}".`,
+    );
   }
 
   private getMessageHub(messageReader: MessageReader<TMessage>) {
@@ -724,6 +930,13 @@ export class CompareChatRuntime<
       activeTurnId: hasRunningBranch ? this.snapshot.activeTurnId : undefined,
     });
   }
+
+  private assertOperational() {
+    this.assertNotDisposed();
+    if (this.lifecyclePhase !== "open") {
+      throw new Error(`ChatRuntime is ${this.lifecyclePhase}.`);
+    }
+  }
 }
 
 function createDefaultId(prefix: string) {
@@ -738,6 +951,57 @@ function createDefaultId(prefix: string) {
 
 function createRuntimeBranchId(turnId: string, sourceBranchId: string) {
   return `${turnId}:${sourceBranchId}`;
+}
+
+function assertUniqueSourceBranchIds<
+  TInput,
+  TMessage extends Message,
+  TSourceMetadata extends ChatMetadata,
+>(
+  sourceEntries: readonly ResolvedSourceEntry<
+    TInput,
+    TMessage,
+    TSourceMetadata
+  >[],
+) {
+  const branchIds = new Set<string>();
+
+  sourceEntries.forEach(({ sourceBranchId }) => {
+    if (!sourceBranchId) {
+      throw new Error("Source branch IDs must not be empty.");
+    }
+    if (branchIds.has(sourceBranchId)) {
+      throw new Error(`Source branch ID "${sourceBranchId}" is duplicated.`);
+    }
+    branchIds.add(sourceBranchId);
+  });
+}
+
+function collectRejectedResults(
+  results: readonly PromiseSettledResult<unknown>[],
+  errors: unknown[],
+) {
+  results.forEach((result) => {
+    if (result.status === "rejected") {
+      errors.push(result.reason);
+    }
+  });
+}
+
+function throwRejectedResults(
+  results: readonly PromiseSettledResult<unknown>[],
+  message: string,
+) {
+  const errors: unknown[] = [];
+  collectRejectedResults(results, errors);
+  throwCollectedErrors(errors, message);
+}
+
+function throwCollectedErrors(errors: readonly unknown[], message: string) {
+  if (errors.length === 0) return;
+  if (errors.length === 1) throw errors[0];
+
+  throw new AggregateError(errors, message);
 }
 
 function isMessageStore<TMessage extends Message>(

@@ -110,11 +110,15 @@ export abstract class BaseChatRuntime<
     if (this.disposed) return;
 
     this.disposed = true;
-    this.listeners.clear();
     this.snapshot = {
       ...this.snapshot,
       status: "closed",
     };
+    try {
+      this.listeners.emit();
+    } finally {
+      this.listeners.clear();
+    }
   }
 
   protected commitSnapshot(

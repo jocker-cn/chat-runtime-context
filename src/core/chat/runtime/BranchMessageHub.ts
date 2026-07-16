@@ -396,7 +396,7 @@ function materializeSnapshot<TMessage extends Message>(
       if (signature !== undefined) {
         signatures.set(message.id, signature);
       }
-      return cloneMessage(message);
+      return cloneMessage(message, signature);
     });
 
     return {
@@ -438,7 +438,7 @@ function materializeSnapshot<TMessage extends Message>(
       if (nextSignature !== undefined) {
         signatures.set(message.id, nextSignature);
       }
-      return cloneMessage(message);
+      return cloneMessage(message, nextSignature);
     }
 
     if (previousSignature !== undefined) {
@@ -453,7 +453,23 @@ function materializeSnapshot<TMessage extends Message>(
   };
 }
 
-function cloneMessage<TMessage extends Message>(message: TMessage): TMessage {
+function cloneMessage<TMessage extends Message>(
+  message: TMessage,
+  signature?: string,
+): TMessage {
+  if (typeof globalThis.structuredClone === "function") {
+    try {
+      return globalThis.structuredClone(message);
+    } catch {
+      // AG-UI messages are normally structured-cloneable. Fall through for
+      // custom Message extensions that contain unsupported values.
+    }
+  }
+
+  if (signature !== undefined) {
+    return JSON.parse(signature) as TMessage;
+  }
+
   return { ...message } as TMessage;
 }
 
