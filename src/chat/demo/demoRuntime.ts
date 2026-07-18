@@ -1,5 +1,9 @@
 import type { Message } from "@ag-ui/client";
-import { SocketAdapterAgent, WebSocketBackendTransport } from "./adapters/socketAdapter";
+import {
+  SocketAdapterAgent,
+  WebSocketBackendTransport,
+  type SocketDisconnectEvent,
+} from "./adapters/socketAdapter";
 import {
   CompareChatRuntime,
   SingleAgentRuntime,
@@ -100,10 +104,27 @@ export const DEMO_COMPARE_SOURCE_BRANCH_IDS = {
   agentB: "agent-b",
 } as const;
 
+type DemoCompareSourceBranchId =
+  (typeof DEMO_COMPARE_SOURCE_BRANCH_IDS)[keyof typeof DEMO_COMPARE_SOURCE_BRANCH_IDS];
+
+export type BeComparisonRuntimeController = DemoRuntimeController & {
+  socket: {
+    closeWithError(sourceBranchId: DemoCompareSourceBranchId): void;
+  };
+};
+
+export type BeSingleRuntimeController = DemoRuntimeController<
+  SingleAgentRuntime<string, DemoMessage>
+> & {
+  socket: {
+    closeWithError(): void;
+  };
+};
+
 export function createBeComparisonRuntime({
   websocketUrl = "ws://localhost:8080/ws/copilot",
   threadId = "ab-chat",
-}: BeComparisonRuntimeOptions = {}): DemoRuntimeController {
+}: BeComparisonRuntimeOptions = {}): BeComparisonRuntimeController {
   const sourceAHistoryMessages = createSourceAMockHistory();
   const agentA = createSocketAgent({
     websocketUrl,
@@ -170,7 +191,35 @@ export function createBeComparisonRuntime({
     }),
   });
 
-  return createDemoRuntimeController(runtime);
+  const controller = createDemoRuntimeController(runtime);
+  agentA.onDisconnected = (event) => {
+    void addSocketDisconnectError(
+      runtime,
+      controller.queue,
+      DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
+      event,
+    ).catch(reportSocketDisconnectError);
+  };
+  agentB.onDisconnected = (event) => {
+    void addSocketDisconnectError(
+      runtime,
+      controller.queue,
+      DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB,
+      event,
+    ).catch(reportSocketDisconnectError);
+  };
+  return {
+    ...controller,
+    socket: {
+      closeWithError: (sourceBranchId) => {
+        const agent =
+          sourceBranchId === DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA
+            ? agentA
+            : agentB;
+        agent.close({ notifyDisconnected: true });
+      },
+    },
+  };
 }
 
 export interface BeSingleRuntimeOptions {
@@ -181,9 +230,7 @@ export interface BeSingleRuntimeOptions {
 export function createBeSingleRuntime({
   websocketUrl = "ws://localhost:8080/ws/copilot",
   threadId = "single-chat",
-}: BeSingleRuntimeOptions = {}): DemoRuntimeController<
-  SingleAgentRuntime<string, DemoMessage>
-> {
+}: BeSingleRuntimeOptions = {}): BeSingleRuntimeController {
   const historyMessages = createSingleAgentMockHistory();
   const agent = createSocketAgent({
     websocketUrl,
@@ -214,7 +261,23 @@ export function createBeSingleRuntime({
     historyMessages,
   });
 
-  return createDemoRuntimeController(runtime);
+  const controller = createDemoRuntimeController(runtime);
+  agent.onDisconnected = (event) => {
+    void addSocketDisconnectError(
+      runtime,
+      controller.queue,
+      "agent-single",
+      event,
+    ).catch(reportSocketDisconnectError);
+  };
+  return {
+    ...controller,
+    socket: {
+      closeWithError: () => {
+        agent.close({ notifyDisconnected: true });
+      },
+    },
+  };
 }
 
 export function createDemoRuntimeController<
@@ -258,6 +321,59 @@ export function createDemoRuntimeController<
       await runtime.dispose();
     },
   };
+}
+
+async function addSocketDisconnectError(
+  runtime: CompareChatRuntime<string, DemoMessage>,
+  queue: SubmissionQueue<DemoSubmission>,
+  sourceBranchId: string,
+  event: SocketDisconnectEvent,
+) {
+  const canAddMessage = await waitUntilRuntimeStopsRunning(runtime);
+  if (!canAddMessage || queue.size > 0) {
+    return;
+  }
+
+  await addAssistantErrorMessage(
+    runtime,
+    {
+      content: {
+        message: "Socket disconnected. Send a new message to reconnect.",
+        code: "SOCKET_DISCONNECTED",
+        detail: event.error.message,
+        closeCode: event.code,
+      },
+    },
+    sourceBranchId,
+  );
+}
+
+function reportSocketDisconnectError(error: unknown) {
+  console.error("Failed to add Socket disconnect Error Message.", error);
+}
+
+function waitUntilRuntimeStopsRunning(
+  runtime: CompareChatRuntime<string, DemoMessage>,
+): Promise<boolean> {
+  const status = runtime.getSnapshot().status;
+  if (status !== "running") {
+    return Promise.resolve(status !== "closed");
+  }
+
+  return new Promise((resolve) => {
+    let unsubscribe: () => void = () => undefined;
+    const checkStatus = () => {
+      const nextStatus = runtime.getSnapshot().status;
+      if (nextStatus === "running") {
+        return;
+      }
+
+      unsubscribe();
+      resolve(nextStatus !== "closed");
+    };
+    unsubscribe = runtime.subscribe(checkStatus);
+    checkStatus();
+  });
 }
 
 async function deleteLastTurn(

@@ -14,8 +14,9 @@ import {
 import { demoRenderer } from "./chat/demo/demoRenderer";
 import type { FrameCardProps } from "./core";
 import type {
+  BeComparisonRuntimeController,
+  BeSingleRuntimeController,
   DemoMessage,
-  DemoRuntimeController,
   DemoSubmission,
 } from "./chat/demo/demoRuntime";
 import styles from "./App.module.css";
@@ -37,8 +38,8 @@ function DemoChats({
 }: {
   websocketUrl: string;
   demos: {
-    compareDemo: DemoRuntimeController;
-    singleDemo: DemoRuntimeController;
+    compareDemo: BeComparisonRuntimeController;
+    singleDemo: BeSingleRuntimeController;
   };
 }) {
   const { compareDemo, singleDemo } = demos;
@@ -109,6 +110,17 @@ function DemoChats({
             AI error
           </button>
           <button
+            className="error-action"
+            type="button"
+            onClick={() =>
+              compareDemo.socket.closeWithError(
+                DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
+              )
+            }
+          >
+            Socket close error
+          </button>
+          <button
             className="secondary"
             type="button"
             onClick={compareDemo.deleteLastTurn}
@@ -168,6 +180,13 @@ function DemoChats({
             AI error
           </button>
           <button
+            className="error-action"
+            type="button"
+            onClick={() => singleDemo.socket.closeWithError()}
+          >
+            Socket close error
+          </button>
+          <button
             className="secondary"
             type="button"
             onClick={singleDemo.deleteLastTurn}
@@ -199,8 +218,8 @@ function DemoChats({
 function useDemoRuntimeControllers(websocketUrl: string) {
   const [demos, setDemos] = useState<{
     websocketUrl: string;
-    compareDemo: DemoRuntimeController;
-    singleDemo: DemoRuntimeController;
+    compareDemo: BeComparisonRuntimeController;
+    singleDemo: BeSingleRuntimeController;
   }>();
 
   useEffect(() => {

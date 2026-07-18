@@ -37,6 +37,7 @@ export type BackendMessage = {
 
 export type BackendTransport = {
   close?: () => void;
+  onDisconnected?: (event: SocketDisconnectEvent) => void;
   run: (
     input: RunAgentInput,
     handlers: {
@@ -46,11 +47,23 @@ export type BackendTransport = {
   ) => () => void;
 };
 
+export type SocketDisconnectEvent = {
+  error: Error;
+  code?: number;
+  reason?: string;
+  wasClean?: boolean;
+};
+
 export type SocketAdapterAgentOptions = {
   agentId?: string;
   description?: string;
   threadId?: string;
   initialMessages?: Message[];
+  onDisconnected?: (event: SocketDisconnectEvent) => void;
+};
+
+export type SocketAdapterAgentCloseOptions = {
+  notifyDisconnected?: boolean;
 };
 
 export type SocketDebugEvent = {
@@ -76,6 +89,7 @@ type WebSocketRunHandlers = {
 export class WebSocketBackendTransport implements BackendTransport {
   private readonly url: string;
   private readonly options: WebSocketBackendTransportOptions;
+  public onDisconnected?: (event: SocketDisconnectEvent) => void;
   private activeHandlers?: WebSocketRunHandlers;
   private pendingPayloads: string[] = [];
   private socket?: WebSocket;
@@ -110,9 +124,7 @@ export class WebSocketBackendTransport implements BackendTransport {
 
   close() {
     this.pendingPayloads = [];
-    this.activeHandlers = undefined;
-    this.socket?.close();
-    this.socket = undefined;
+    this.socket?.close(4000, "Manual socket disconnect");
   }
 
   private connect() {
@@ -128,10 +140,16 @@ export class WebSocketBackendTransport implements BackendTransport {
     this.socket = socket;
 
     socket.onopen = () => {
+      if (this.socket !== socket) {
+        return;
+      }
       this.emitDebugEvent({ direction: "open" });
       this.flushPendingPayloads();
     };
     socket.onmessage = ({ data }) => {
+      if (this.socket !== socket) {
+        return;
+      }
       const payload = String(data);
       this.emitDebugEvent({
         direction: "receive",
@@ -148,19 +166,28 @@ export class WebSocketBackendTransport implements BackendTransport {
       }
     };
     socket.onerror = () => {
+      if (this.socket !== socket) {
+        return;
+      }
       this.emitDebugEvent({
         direction: "error",
         payload: "WebSocket backend connection failed.",
       });
-      this.activeHandlers?.onError(
-        new Error("WebSocket backend connection failed."),
-      );
+      this.handleDisconnect(socket, {
+        error: new Error("WebSocket backend connection failed."),
+      });
+      socket.close();
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       this.emitDebugEvent({ direction: "close" });
-      if (this.socket === socket) {
-        this.socket = undefined;
-      }
+      const reason =
+        event.reason.trim() || `WebSocket disconnected (${event.code}).`;
+      this.handleDisconnect(socket, {
+        error: new Error(reason),
+        code: event.code,
+        reason: event.reason || undefined,
+        wasClean: event.wasClean,
+      });
     };
 
     return socket;
@@ -180,6 +207,26 @@ export class WebSocketBackendTransport implements BackendTransport {
         detail: debugEvent,
       }),
     );
+  }
+
+  private handleDisconnect(
+    socket: WebSocket,
+    event: SocketDisconnectEvent,
+  ) {
+    if (this.socket !== socket) {
+      return;
+    }
+
+    this.socket = undefined;
+    this.pendingPayloads = [];
+    const handlers = this.activeHandlers;
+    this.activeHandlers = undefined;
+
+    try {
+      handlers?.onError(event.error);
+    } finally {
+      this.onDisconnected?.(event);
+    }
   }
 
   private flushPendingPayloads() {
@@ -221,9 +268,21 @@ export class SocketAdapterAgent extends AbstractAgent {
       initialMessages: options.initialMessages,
     });
     this.transport = transport;
+    if (options.onDisconnected) {
+      this.onDisconnected = options.onDisconnected;
+    }
   }
 
-  close() {
+  set onDisconnected(
+    callback: ((event: SocketDisconnectEvent) => void) | undefined,
+  ) {
+    this.transport.onDisconnected = callback;
+  }
+
+  close(options: SocketAdapterAgentCloseOptions = {}) {
+    if (!options.notifyDisconnected) {
+      this.onDisconnected = undefined;
+    }
     this.transport.close?.();
   }
 

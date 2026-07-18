@@ -72,7 +72,7 @@ p {
 .composer {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr) repeat(4, auto);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-bottom: 18px;
 }
 
@@ -81,6 +81,7 @@ p {
   border-radius: 6px;
   color: inherit;
   font: inherit;
+  grid-column: 1 / -2;
   padding: 10px 12px;
 }
 
@@ -512,6 +513,10 @@ p {
 
   .composer {
     grid-template-columns: 1fr;
+  }
+
+  .composer input {
+    grid-column: auto;
   }
 
   .submission-queue-item {
