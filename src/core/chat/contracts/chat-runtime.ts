@@ -104,6 +104,17 @@ export interface ChatRunOptions<
   metadata?: TMetadata;
 }
 
+export interface ChatLocalMessageOptions<
+  TMetadata extends ChatMetadata = ChatMetadata,
+> {
+  turnId?: string;
+  /** Defaults to the answer branch. Use input for a User-side message. */
+  placement?: "input" | "branch";
+  /** Source branch ID. Required when multiple Sources are configured. */
+  branchId?: string;
+  metadata?: TMetadata;
+}
+
 export interface ChatCancelTarget {
   turnId?: string;
   branchId?: string;
@@ -131,6 +142,12 @@ export interface ChatRuntime<
   send(
     input: TInput,
     options?: ChatRunOptions<TMessage>,
+  ): Promise<ChatRunHandle>;
+
+  /** Adds one local message through a tracked Turn without starting a backend run. */
+  sendLocalMessage(
+    message: TMessage,
+    options?: ChatLocalMessageOptions<TTurnMetadata>,
   ): Promise<ChatRunHandle>;
 
   cancel(target?: ChatCancelTarget): Promise<void> | void;

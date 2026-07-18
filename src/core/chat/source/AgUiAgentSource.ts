@@ -12,6 +12,7 @@ import { ListenerSet } from "../../internal/ListenerSet";
 import type {
   AnswerSource,
   ChatSourceEvent,
+  ChatSourceMessageContext,
   ChatSourceRunContext,
   DeleteSourceMessagesContext,
 } from "./answer-source";
@@ -123,6 +124,13 @@ export class AgUiAgentSource<
     );
 
     return queue;
+  }
+
+  addLocalMessage(
+    message: Message,
+    _context: ChatSourceMessageContext<TMetadata>,
+  ): void {
+    this.agent.addMessage(message);
   }
 
   cancel(): void {

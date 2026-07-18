@@ -2,6 +2,7 @@ import type { Message } from "@ag-ui/client";
 import type {
   ChatBranch,
   ChatBranchSelectionInput,
+  ChatLocalMessageOptions,
   ChatMetadata,
   ChatRunHandle,
   ChatRunOptions,
@@ -206,6 +207,96 @@ export class CompareChatRuntime<
     input: TInput,
     options: ChatRunOptions<TMessage> = {},
   ): Promise<ChatRunHandle> {
+    const { turnId, sourceEntries } = this.prepareTurnStart(options);
+    const inputMessage =
+      options.inputMessage ?? this.createInputMessage(input, turnId);
+    if (!inputMessage) {
+      throw new Error("createInputMessage must return a message.");
+    }
+
+    const trackedTurn = this.openTrackedTurn({
+      turnId,
+      sourceEntries,
+      inputMessage,
+      metadata: this.getTurnMetadata?.(input, options),
+    });
+
+    trackedTurn.branchRunEntries.forEach(({
+      source,
+      branchId,
+      messageStore,
+      context,
+    }) => {
+      if (this.activeRuns.get(branchId)?.phase === "running") {
+        void this.consumeSource(
+          input,
+          branchId,
+          source,
+          context,
+          messageStore,
+        );
+      }
+    });
+
+    return trackedTurn.handle;
+  }
+
+  public override async sendLocalMessage(
+    message: TMessage,
+    options: ChatLocalMessageOptions<TTurnMetadata> = {},
+  ): Promise<ChatRunHandle> {
+    this.assertOperational();
+    const sourceBranchId = this.resolveLocalSourceBranchId(options.branchId);
+    const { turnId, sourceEntries } = this.prepareTurnStart({
+      turnId: options.turnId,
+      branchIds: [sourceBranchId],
+    });
+    const sourceEntry = sourceEntries[0]!;
+    if (!sourceEntry.source.source.addLocalMessage) {
+      throw new Error(
+        `Source branch "${sourceBranchId}" does not support local messages.`,
+      );
+    }
+    if (!sourceEntry.source.source.messageReader) {
+      throw new Error(
+        `Source branch "${sourceBranchId}" requires a messageReader for local messages.`,
+      );
+    }
+
+    const trackedTurn = this.openTrackedTurn({
+      turnId,
+      sourceEntries,
+      inputMessage: options.placement === "input" ? message : undefined,
+      metadata: options.metadata,
+    });
+    const branchRun = trackedTurn.branchRunEntries[0]!;
+    if (this.activeRuns.get(branchRun.branchId)?.phase !== "running") {
+      return trackedTurn.handle;
+    }
+
+    this.updateBranch(branchRun.branchId, {
+      status: "running",
+      error: undefined,
+    });
+    if (this.activeRuns.get(branchRun.branchId)?.phase !== "running") {
+      return trackedTurn.handle;
+    }
+
+    let outcome: BranchRunOutcome = { status: "completed" };
+    try {
+      sourceEntry.source.source.addLocalMessage(message, branchRun.context);
+    } catch (error) {
+      outcome = { status: "error", error };
+    }
+    this.finishActiveBranch(branchRun.branchId, outcome);
+
+    return trackedTurn.handle;
+  }
+
+  private prepareTurnStart(options: {
+    turnId?: string;
+    branchIds?: readonly string[];
+  }) {
     this.assertOperational();
 
     if (this.snapshot.status === "running") {
@@ -220,11 +311,25 @@ export class CompareChatRuntime<
     }
 
     const sourceEntries = this.resolveSourceEntries(options.branchIds);
-    const inputMessage =
-      options.inputMessage ?? this.createInputMessage(input, turnId);
-    if (!inputMessage) {
-      throw new Error("createInputMessage must return a message.");
-    }
+
+    return { turnId, sourceEntries };
+  }
+
+  private openTrackedTurn({
+    turnId,
+    sourceEntries,
+    inputMessage,
+    metadata,
+  }: {
+    turnId: string;
+    sourceEntries: readonly ResolvedSourceEntry<
+      TInput,
+      TMessage,
+      TSourceMetadata
+    >[];
+    inputMessage: TMessage | undefined;
+    metadata: TTurnMetadata | undefined;
+  }) {
     const branchEntries = sourceEntries.map((entry) => ({
       ...entry,
       branchId: createRuntimeBranchId(turnId, entry.sourceBranchId),
@@ -239,13 +344,17 @@ export class CompareChatRuntime<
 
     const turn: ChatTurn<TMessage, TTurnMetadata> = {
       id: turnId,
-      inputMessage,
-      inputMessageId: inputMessage.id,
       branchIds,
       selectedBranchId:
         branchIds.length === 1 ? branchIds[0] : undefined,
       createdAt: Date.now(),
-      metadata: this.getTurnMetadata?.(input, options),
+      ...(inputMessage
+        ? {
+            inputMessage,
+            inputMessageId: inputMessage.id,
+          }
+        : {}),
+      ...(metadata !== undefined ? { metadata } : {}),
     };
 
     const branchRunEntries = branchEntries.map((entry) => {
@@ -270,11 +379,11 @@ export class CompareChatRuntime<
               threadId: this.snapshot.threadId,
               turnId,
               branchId: entry.branchId,
-              anchorMessageId: inputMessage.id,
+              anchorMessageId: inputMessage?.id,
             },
             selector: entry.source.source.selectMessages,
             baselineMessages: sourceMessageReader.getMessages(),
-            inputMessageIds: [inputMessage.id],
+            inputMessageIds: inputMessage ? [inputMessage.id] : [],
             trackNewMessages: true,
           })
         : undefined;
@@ -308,7 +417,7 @@ export class CompareChatRuntime<
           turnId,
           label: source.label ?? source.source.label,
           sourceId: source.sourceId ?? source.source.id ?? sourceBranchId,
-          anchorMessageId: inputMessage.id,
+          anchorMessageId: inputMessage?.id,
           messageReader,
           selectMessages,
           status: "idle",
@@ -354,26 +463,12 @@ export class CompareChatRuntime<
       },
     });
 
-    branchRunEntries.forEach(({
-      source,
-      branchId,
-      messageStore,
-      context,
-    }) => {
-      if (this.activeRuns.get(branchId)?.phase === "running") {
-        void this.consumeSource(
-          input,
-          branchId,
-          source,
-          context,
-          messageStore,
-        );
-      }
-    });
-
     return {
-      turnId,
-      branchIds,
+      handle: {
+        turnId,
+        branchIds,
+      },
+      branchRunEntries,
     };
   }
 
@@ -644,6 +739,20 @@ export class CompareChatRuntime<
     );
   }
 
+  private resolveLocalSourceBranchId(branchId?: string) {
+    if (branchId !== undefined) {
+      return branchId;
+    }
+
+    if (this.sourceEntries.length === 1) {
+      return this.sourceEntries[0]!.sourceBranchId;
+    }
+
+    throw new Error(
+      "sendLocalMessage requires branchId when the Runtime has multiple Sources.",
+    );
+  }
+
   private initializeHistoryTurns(
     historyTurns: readonly CompareChatRuntimeHistoryTurn<
       TMessage,
@@ -812,28 +921,36 @@ export class CompareChatRuntime<
         };
       }
     } finally {
-      const activeRun = this.activeRuns.get(branchId);
-      if (activeRun?.phase === "running") {
-        // AG-UI emits run-finished before its finalization hook completes.
-        // Commit the last reader value only after the iterator closes so a
-        // final onFinalize message update cannot be dropped.
-        activeRun.messageScope?.stopTracking();
-        this.activeRuns.delete(branchId);
-        this.updateBranch(
-          branchId,
-          outcome?.status === "error"
-            ? {
-                status: "error",
-                error: outcome.error,
-              }
-            : {
-                status: "completed",
-                error: undefined,
-              },
-        );
-        this.refreshRuntimeStatus();
-      }
+      this.finishActiveBranch(
+        branchId,
+        outcome ?? { status: "completed" },
+      );
     }
+  }
+
+  private finishActiveBranch(branchId: string, outcome: BranchRunOutcome) {
+    const activeRun = this.activeRuns.get(branchId);
+    if (activeRun?.phase !== "running") {
+      return;
+    }
+
+    // Read the Source synchronously before closing the tracking scope. AG-UI
+    // may deliver onMessagesChanged after addMessage/run finalization returns.
+    activeRun.messageScope?.stopTracking();
+    this.activeRuns.delete(branchId);
+    this.updateBranch(
+      branchId,
+      outcome.status === "error"
+        ? {
+            status: "error",
+            error: outcome.error,
+          }
+        : {
+            status: "completed",
+            error: undefined,
+          },
+    );
+    this.refreshRuntimeStatus();
   }
 
   private async deleteTurnMessages(

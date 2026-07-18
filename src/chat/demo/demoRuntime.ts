@@ -3,6 +3,9 @@ import { SocketAdapterAgent, WebSocketBackendTransport } from "./adapters/socket
 import {
   CompareChatRuntime,
   SingleAgentRuntime,
+  addAssistantErrorMessage,
+  addUserErrorMessage,
+  clearErrorMessagesBeforeSend,
   createAgUiAgentSource,
   createChatRuntimeQueueTarget,
   createMainBranchHistoryTurns,
@@ -72,14 +75,16 @@ export interface BeComparisonRuntimeOptions {
 }
 
 export interface DemoRuntimeController<
-  TRuntime extends CompareChatRuntime<string, Message> = CompareChatRuntime<
+  TRuntime extends CompareChatRuntime<string, DemoMessage> = CompareChatRuntime<
     string,
-    Message
+    DemoMessage
   >,
 > {
   runtime: TRuntime;
   queue: SubmissionQueue<DemoSubmission>;
   scheduler: QueueScheduler<DemoSubmission>;
+  addUserError(sourceBranchId?: string): Promise<void>;
+  addAiError(sourceBranchId?: string): Promise<void>;
   deleteLastTurn(): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -90,6 +95,11 @@ export interface DemoSubmission {
   attachments?: readonly unknown[];
 }
 
+export const DEMO_COMPARE_SOURCE_BRANCH_IDS = {
+  agentA: "agent-a",
+  agentB: "agent-b",
+} as const;
+
 export function createBeComparisonRuntime({
   websocketUrl = "ws://localhost:8080/ws/copilot",
   threadId = "ab-chat",
@@ -97,29 +107,29 @@ export function createBeComparisonRuntime({
   const sourceAHistoryMessages = createSourceAMockHistory();
   const agentA = createSocketAgent({
     websocketUrl,
-    agentId: "agent-a",
+    agentId: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
     description: "Agent A",
-    threadId: `${threadId}:agent-a`,
+    threadId: `${threadId}:${DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA}`,
     initialMessages: sourceAHistoryMessages,
   });
   const agentB = createSocketAgent({
     websocketUrl,
-    agentId: "agent-b",
+    agentId: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB,
     description: "Agent B",
-    threadId: `${threadId}:agent-b`,
+    threadId: `${threadId}:${DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB}`,
   });
-  const sourceA = createAgUiAgentSource({
-    id: "agent-a",
+  const sourceA = createAgUiAgentSource<string>({
+    id: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
     label: "Agent A",
     agent: agentA,
   });
-  const sourceB = createAgUiAgentSource({
-    id: "agent-b",
+  const sourceB = createAgUiAgentSource<string>({
+    id: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB,
     label: "Agent B",
     agent: agentB,
   });
 
-  const runtime = new CompareChatRuntime<string, Message>({
+  const runtime = new CompareChatRuntime<string, DemoMessage>({
     threadId,
     createInputMessage: (input, turnId) => ({
       id: `${turnId}:input`,
@@ -128,7 +138,7 @@ export function createBeComparisonRuntime({
     }),
     sources: [
       {
-        branchId: "agent-a",
+        branchId: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
         label: "Agent A",
         metadata: {
           agent: agentA,
@@ -136,7 +146,7 @@ export function createBeComparisonRuntime({
         source: sourceA,
       },
       {
-        branchId: "agent-b",
+        branchId: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB,
         label: "Agent B",
         metadata: {
           agent: agentB,
@@ -146,14 +156,14 @@ export function createBeComparisonRuntime({
     ],
     historyTurns: createMainBranchHistoryTurns({
       messages: sourceAHistoryMessages,
-      sourceBranchId: "agent-a",
+      sourceBranchId: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
       branchLabel: "Agent A",
       getCreatedAt: (_inputMessage, turnIndex) =>
         Date.now() - 1000 * 60 * (10 - turnIndex * 5),
       getSelection: () => ({
         score: 1,
         metadata: {
-          sourceId: "agent-a",
+          sourceId: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
           history: true,
         },
       }),
@@ -172,7 +182,7 @@ export function createBeSingleRuntime({
   websocketUrl = "ws://localhost:8080/ws/copilot",
   threadId = "single-chat",
 }: BeSingleRuntimeOptions = {}): DemoRuntimeController<
-  SingleAgentRuntime<string, Message>
+  SingleAgentRuntime<string, DemoMessage>
 > {
   const historyMessages = createSingleAgentMockHistory();
   const agent = createSocketAgent({
@@ -182,13 +192,13 @@ export function createBeSingleRuntime({
     threadId,
     initialMessages: historyMessages,
   });
-  const source = createAgUiAgentSource({
+  const source = createAgUiAgentSource<string>({
     id: "agent-single",
     label: "Single Agent",
     agent,
   });
 
-  const runtime = new SingleAgentRuntime<string, Message>({
+  const runtime = new SingleAgentRuntime<string, DemoMessage>({
     threadId,
     branchId: "agent-single",
     branchLabel: "Single Agent",
@@ -207,22 +217,41 @@ export function createBeSingleRuntime({
   return createDemoRuntimeController(runtime);
 }
 
-function createDemoRuntimeController<
-  TRuntime extends CompareChatRuntime<string, Message>,
+export function createDemoRuntimeController<
+  TRuntime extends CompareChatRuntime<string, DemoMessage>,
 >(runtime: TRuntime): DemoRuntimeController<TRuntime> {
   const queue = createSubmissionQueue<DemoSubmission>();
+  const runtimeTarget = createChatRuntimeQueueTarget<DemoSubmission, string>({
+    runtime,
+    toInput: (item) => item.payload.text,
+  });
   const scheduler = createQueueScheduler({
     queue,
-    target: createChatRuntimeQueueTarget<DemoSubmission, string>({
-      runtime,
-      toInput: (item) => item.payload.text,
-    }),
+    target: {
+      ...runtimeTarget,
+      dispatch: async (item, context) => {
+        await clearErrorMessagesBeforeSend(runtime);
+        await runtimeTarget.dispatch(item, context);
+      },
+    },
   });
 
   return {
     runtime,
     queue,
     scheduler,
+    addUserError: (sourceBranchId) =>
+      addUserErrorMessage(
+        runtime,
+        "This message could not be sent.",
+        sourceBranchId,
+      ),
+    addAiError: (sourceBranchId) =>
+      addAssistantErrorMessage(
+        runtime,
+        "The connection was interrupted. Please try again.",
+        sourceBranchId,
+      ),
     deleteLastTurn: () => deleteLastTurn(runtime),
     dispose: async () => {
       scheduler.dispose();
@@ -232,7 +261,7 @@ function createDemoRuntimeController<
 }
 
 async function deleteLastTurn(
-  runtime: CompareChatRuntime<string, Message>,
+  runtime: CompareChatRuntime<string, DemoMessage>,
 ) {
   const snapshot = runtime.getSnapshot();
   const turnId = snapshot.turnIds.at(-1);

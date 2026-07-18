@@ -70,7 +70,7 @@ describe("createChatRuntimeQueueTarget", () => {
     await runtime.dispose();
   });
 
-  it("blocks queued submissions after a runtime error by default", async () => {
+  it("continues queued submissions after a recoverable runtime error by default", async () => {
     const source = new ControlledAnswerSource();
     const runtime = new SingleAgentRuntime<string, Message>({
       source,
@@ -86,6 +86,43 @@ describe("createChatRuntimeQueueTarget", () => {
       target: createChatRuntimeQueueTarget<TestPayload, string>({
         runtime,
         toInput: (item) => item.payload.text,
+      }),
+    });
+
+    const first = queue.enqueue({ text: "first" });
+    const second = queue.enqueue({ text: "second" });
+    await vi.waitFor(() => expect(source.inputs).toEqual(["first"]));
+
+    source.fail("first", new Error("backend unavailable"));
+
+    await vi.waitFor(() => expect(source.inputs).toEqual(["first", "second"]));
+    expect(queue.has(first.id)).toBe(false);
+    expect(queue.has(second.id)).toBe(false);
+
+    source.complete("second");
+    await vi.waitFor(() => expect(runtime.getSnapshot().status).toBe("idle"));
+
+    scheduler.dispose();
+    await runtime.dispose();
+  });
+
+  it("can explicitly block queued submissions after a runtime error", async () => {
+    const source = new ControlledAnswerSource();
+    const runtime = new SingleAgentRuntime<string, Message>({
+      source,
+      createInputMessage: (input, turnId) => ({
+        id: `${turnId}:input`,
+        role: "user",
+        content: input,
+      }),
+    });
+    const queue = createSubmissionQueue<TestPayload>();
+    const scheduler = createQueueScheduler({
+      queue,
+      target: createChatRuntimeQueueTarget<TestPayload, string>({
+        runtime,
+        toInput: (item) => item.payload.text,
+        errorPolicy: "block",
       }),
     });
 

@@ -5,7 +5,7 @@ import type {
   MessageReader,
 } from "../contracts/chat-runtime";
 
-export interface ChatSourceRunContext<
+export interface ChatSourceMessageContext<
   TMetadata extends ChatMetadata = ChatMetadata,
 > {
   threadId?: string;
@@ -13,8 +13,13 @@ export interface ChatSourceRunContext<
   branchId: string;
   sourceId: string;
   inputMessage?: Message;
-  signal: AbortSignal;
   metadata?: TMetadata;
+}
+
+export interface ChatSourceRunContext<
+  TMetadata extends ChatMetadata = ChatMetadata,
+> extends ChatSourceMessageContext<TMetadata> {
+  signal: AbortSignal;
 }
 
 export interface DeleteSourceMessagesContext {
@@ -58,6 +63,15 @@ export interface AnswerSource<
     input: TInput,
     context: ChatSourceRunContext<TMetadata>,
   ): AsyncIterable<ChatSourceEvent<TMessage>>;
+
+  /**
+   * Synchronously adds one local message without starting a backend run.
+   * messageReader must expose the message before this method returns.
+   */
+  addLocalMessage?(
+    message: TMessage,
+    context: ChatSourceMessageContext<TMetadata>,
+  ): void;
 
   cancel?(context: ChatSourceRunContext<TMetadata>): Promise<void> | void;
 

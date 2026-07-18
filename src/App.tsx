@@ -7,6 +7,7 @@ import {
   useSubmissionQueue,
 } from "./core";
 import {
+  DEMO_COMPARE_SOURCE_BRANCH_IDS,
   createBeComparisonRuntime,
   createBeSingleRuntime,
 } from "./chat/demo/demoRuntime";
@@ -86,6 +87,28 @@ function DemoChats({
             Send
           </button>
           <button
+            className="error-action"
+            type="button"
+            onClick={() =>
+              void compareDemo.addUserError(
+                DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
+              )
+            }
+          >
+            User error
+          </button>
+          <button
+            className="error-action"
+            type="button"
+            onClick={() =>
+              void compareDemo.addAiError(
+                DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
+              )
+            }
+          >
+            AI error
+          </button>
+          <button
             className="secondary"
             type="button"
             onClick={compareDemo.deleteLastTurn}
@@ -129,6 +152,20 @@ function DemoChats({
           />
           <button type="button" onClick={sendSingle}>
             Send
+          </button>
+          <button
+            className="error-action"
+            type="button"
+            onClick={() => void singleDemo.addUserError()}
+          >
+            User error
+          </button>
+          <button
+            className="error-action"
+            type="button"
+            onClick={() => void singleDemo.addAiError()}
+          >
+            AI error
           </button>
           <button
             className="secondary"

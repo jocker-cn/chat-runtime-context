@@ -2,6 +2,7 @@ import type { Message } from "@ag-ui/client";
 import type {
   ChatCancelTarget,
   ChatBranchSelectionInput,
+  ChatLocalMessageOptions,
   ChatMetadata,
   ChatMode,
   ChatRunHandle,
@@ -79,6 +80,16 @@ export abstract class BaseChatRuntime<
     input: TInput,
     options?: ChatRunOptions<TMessage>,
   ): Promise<ChatRunHandle>;
+
+  public sendLocalMessage(
+    _message: TMessage,
+    _options: ChatLocalMessageOptions<TTurnMetadata> = {},
+  ): Promise<ChatRunHandle> {
+    this.assertNotDisposed();
+    return Promise.reject(
+      new Error("This ChatRuntime does not support local messages."),
+    );
+  }
 
   public cancel(_target?: ChatCancelTarget): Promise<void> | void {
     this.assertNotDisposed();

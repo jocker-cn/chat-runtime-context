@@ -7,6 +7,7 @@ export type {
   ChatBranchStatus,
   ChatCancelTarget,
   ChatMetadata,
+  ChatLocalMessageOptions,
   ChatMode,
   ChatRunHandle,
   ChatRunOptions,
@@ -49,6 +50,17 @@ export type {
 } from "./queue/createChatRuntimeQueueTarget";
 
 export {
+  addAssistantErrorMessage,
+  addErrorMessage,
+  addUserErrorMessage,
+  clearErrorMessagesBeforeSend,
+} from "./operations/errorMessages";
+export type {
+  AssistantErrorMessageInput,
+  UserErrorMessageInput,
+} from "./operations/errorMessages";
+
+export {
   createMainBranchHistoryTurns,
 } from "./history/createMainBranchHistoryTurns";
 export type {
@@ -76,6 +88,7 @@ export type {
   AnswerSource,
   AnswerSourceConfig,
   ChatSourceEvent,
+  ChatSourceMessageContext,
   ChatSourceRunContext,
   DeleteSourceMessagesContext,
 } from "./source/answer-source";

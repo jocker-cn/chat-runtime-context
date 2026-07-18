@@ -179,11 +179,7 @@ export class BranchMessageHub<TMessage extends Message = Message> {
     // Commit the source's current value synchronously. Subscriber delivery is
     // still frame-coalesced, but stop/cancel callers can read the terminal
     // snapshot immediately and no final delta is lost.
-    if (this.sourceDirty) {
-      this.reconcileSource(scopeId);
-    } else {
-      this.updateScope(scope, "terminal");
-    }
+    this.reconcileSource(scopeId);
     this.trackingScopeIds.delete(scopeId);
   }
 

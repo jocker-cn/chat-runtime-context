@@ -48,7 +48,7 @@ export function createChatRuntimeQueueTarget<
     TBranchMetadata
   >,
 ): QueueDispatchTarget<TPayload, TQueueMetadata> {
-  const errorPolicy = options.errorPolicy ?? "block";
+  const errorPolicy = options.errorPolicy ?? "continue";
   const target: QueueDispatchTarget<TPayload, TQueueMetadata> = {
     subscribe: options.runtime.subscribe,
     getSnapshot: () => {

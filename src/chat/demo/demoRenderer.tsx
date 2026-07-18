@@ -1,11 +1,14 @@
 import type { Message } from "@ag-ui/client";
-import {useEffect, useId} from "react";
+import { useEffect, useId } from "react";
 import {
   createFrameRenderer,
   useSelectBranch,
   type FrameCardProps,
 } from "../../core";
-import type { DemoMessage } from "./demoRuntime";
+import {
+  isDemoAiErrorMessage,
+  type DemoMessage,
+} from "./demoMessage";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { ThinkContent } from "./ThinkContent";
 import {
@@ -21,6 +24,10 @@ export const demoRenderer = createFrameRenderer<DemoMessage>({
     reasoning: ReasoningMessageCard,
     activity: [
       {
+        condition: isDemoAiErrorMessage,
+        card: AiErrorMessageCard,
+      },
+      {
         condition: isThinkingActivityMessage,
         card: ThinkingActivityCard,
       },
@@ -32,15 +39,41 @@ export const demoRenderer = createFrameRenderer<DemoMessage>({
 
 function UserMessageCard({ message }: FrameCardProps<DemoMessage>) {
   const contentId = useId();
+  const isError = message.status === "error";
 
   return (
     <article
       className="message-card message-card-user"
+      data-status={isError ? "error" : undefined}
       tabIndex={0}
-      aria-label="User message"
+      aria-label={isError ? "User message failed" : "User message"}
       aria-describedby={contentId}
     >
+      {isError ? (
+        <strong className="message-card-error-label">Failed to send</strong>
+      ) : null}
       <div id={contentId}>{messageText(message)}</div>
+    </article>
+  );
+}
+
+function AiErrorMessageCard({ message }: FrameCardProps<DemoMessage>) {
+  const contentId = useId();
+  if (!isDemoAiErrorMessage(message)) {
+    return null;
+  }
+
+  return (
+    <article
+      className="message-card message-card-ai-error"
+      tabIndex={0}
+      aria-label="AI error"
+      aria-describedby={contentId}
+    >
+      <strong className="message-card-error-label">AI response error</strong>
+      <div id={contentId} role="alert">
+        {activityErrorText(message)}
+      </div>
     </article>
   );
 }
@@ -167,6 +200,24 @@ function capitalize(value: string) {
   return value.length > 0
     ? `${value[0]?.toUpperCase()}${value.slice(1)}`
     : value;
+}
+
+function activityErrorText(message: DemoMessage) {
+  const content: unknown = message.content;
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (
+    content &&
+    typeof content === "object" &&
+    "message" in content &&
+    typeof content.message === "string"
+  ) {
+    return content.message;
+  }
+
+  return "The connection was interrupted.";
 }
 
 function messageText(message: Message) {
