@@ -9,10 +9,15 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:accessibility": "vitest run test/core/react/accessibility"
+    "test:accessibility": "vitest run test/core/react/accessibility",
+    "whitepaper:dev": "vite --config whitepaper/vite.config.ts",
+    "whitepaper:build": "tsc -p whitepaper/tsconfig.json --noEmit && vite build --config whitepaper/vite.config.ts && node whitepaper/scripts/finalize-build.mjs",
+    "whitepaper:test": "vitest run test/whitepaper",
+    "whitepaper:preview": "vite preview --config whitepaper/vite.config.ts"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.57",
+    "@xyflow/react": "12.11.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
@@ -30,6 +35,7 @@
     "jsdom": "^29.1.1",
     "typescript": "6.0.3",
     "vite": "8.1.0",
+    "vite-plugin-singlefile": "2.3.3",
     "vitest": "^4.1.10"
   }
 }
