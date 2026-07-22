@@ -5,6 +5,7 @@ export const THINKING_ACTIVITY_TYPE = "thinking";
 export type ThinkingActivityPhase =
   | "processing"
   | "thought"
+  | "answering"
   | "completed";
 
 export interface ThinkingActivityContent {
@@ -36,6 +37,7 @@ export function isThinkingActivityMessage(
   return (
     (phase === "processing" ||
       phase === "thought" ||
+      phase === "answering" ||
       phase === "completed") &&
     typeof message.content.text === "string"
   );

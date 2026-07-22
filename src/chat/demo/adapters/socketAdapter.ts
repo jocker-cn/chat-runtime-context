@@ -346,7 +346,7 @@ export class SocketAdapterAgent extends AbstractAgent {
             case "thinking_completed":
               break;
             case "streaming_started": {
-              thinkingPhase = "completed";
+              thinkingPhase = "answering";
               emitThinkingSnapshot();
               textMessageIds.add(messageId);
               emit({
@@ -392,6 +392,8 @@ export class SocketAdapterAgent extends AbstractAgent {
               break;
             }
             case "completed":
+              thinkingPhase = "completed";
+              emitThinkingSnapshot();
               emit({
                 type: EventType.RUN_FINISHED,
                 threadId: input.threadId,

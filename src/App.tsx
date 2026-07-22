@@ -20,8 +20,12 @@ import type {
   DemoSubmission,
 } from "./chat/demo/demoRuntime";
 import styles from "./App.module.css";
+import { AgUiStatusDemoPage } from "./chat/demo/AgUiStatusDemoPage";
 
 export function App() {
+  if (window.location.pathname === "/ag-ui-status-demo") {
+    return <AgUiStatusDemoPage />;
+  }
   const websocketUrl =
     import.meta.env.VITE_COPILOT_WS_URL ?? "ws://localhost:8080/ws/copilot";
   const demos = useDemoRuntimeControllers(websocketUrl);

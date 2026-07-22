@@ -159,6 +159,8 @@ function thinkingTitle(phase: ThinkingActivityPhase) {
       return "Processing";
     case "thought":
       return "Thought";
+    case "answering":
+      return "AI Search";
     case "completed":
       return "How AI Think";
   }
