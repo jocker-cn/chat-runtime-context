@@ -7,7 +7,9 @@ indexes are linked lazily on first resolution or explicitly with `link()`.
 ## Register with decorators
 
 TypeScript decorators cannot target top-level functions. Decorator syntax is
-therefore supported on public static methods (and class components):
+therefore supported on public methods (and class components). Instance methods
+are registered directly from their descriptor; the registry does not construct
+the containing class, so decorated methods must not depend on `this`:
 
 ```tsx
 import { RegisterComponent, RegisterFunction } from "../../core";
@@ -92,4 +94,3 @@ import.meta.glob("./**/*.capability.{ts,tsx}", { eager: true });
 V1 detects component render cycles and synchronous function cycles. The trace
 contract is reserved for a later async-context implementation, but V1 does not
 claim to detect function cycles that cross an `await` boundary.
-

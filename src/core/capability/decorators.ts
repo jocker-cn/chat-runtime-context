@@ -16,7 +16,7 @@ export function createCapabilityDecorators(registry: CapabilityRegistry) {
       registration: CapabilityRegistration,
     ): FunctionCapabilityDecorator {
       return (target, propertyKey, descriptor) => {
-        assertPublicStaticMethod(
+        const implementation = getPublicMethod(
           target,
           propertyKey,
           descriptor,
@@ -24,7 +24,7 @@ export function createCapabilityDecorators(registry: CapabilityRegistry) {
         );
         registry.registerFunction(
           registration,
-          descriptor.value as CapabilityFunction,
+          implementation as CapabilityFunction,
           decoratorSource(target, propertyKey),
         );
       };
@@ -47,7 +47,7 @@ export function createCapabilityDecorators(registry: CapabilityRegistry) {
           return;
         }
 
-        assertPublicStaticMethod(
+        const implementation = getPublicMethod(
           target,
           propertyKey,
           descriptor,
@@ -55,7 +55,7 @@ export function createCapabilityDecorators(registry: CapabilityRegistry) {
         );
         registry.registerComponent(
           registration,
-          descriptor?.value as ComponentType<any>,
+          implementation as ComponentType<any>,
           decoratorSource(target, propertyKey),
         );
       }) as ComponentCapabilityDecorator;
@@ -84,27 +84,31 @@ export function defineComponentCapability<TProps>(
   return registry.registerComponent(registration, implementation);
 }
 
-function assertPublicStaticMethod(
+function getPublicMethod(
   target: object | Function,
   propertyKey: string | symbol,
   descriptor: PropertyDescriptor | undefined,
   decoratorName: string,
-): asserts descriptor is PropertyDescriptor & { value: Function } {
-  if (
-    typeof target !== "function" ||
-    !descriptor ||
-    typeof descriptor.value !== "function"
-  ) {
+): Function {
+  const resolvedDescriptor =
+    descriptor ?? Object.getOwnPropertyDescriptor(target, propertyKey);
+
+  if (!resolvedDescriptor || typeof resolvedDescriptor.value !== "function") {
     throw new CapabilityRegistrationError(
-      `${decoratorName} can only decorate public static methods; "${String(propertyKey)}" is not supported.`,
+      `${decoratorName} can only decorate public methods; "${String(propertyKey)}" is not supported.`,
     );
   }
+
+  return resolvedDescriptor.value;
 }
 
 function decoratorSource(
   target: object | Function,
   propertyKey: string | symbol,
 ) {
-  const owner = typeof target === "function" ? target.name : "anonymous";
+  const owner =
+    typeof target === "function"
+      ? target.name
+      : target.constructor?.name ?? "anonymous";
   return `@method:${owner}.${String(propertyKey)}`;
 }
