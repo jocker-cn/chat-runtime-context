@@ -377,20 +377,31 @@ function addToIndex(
   }
 }
 
-function sortIndex(index: CapabilityIndex) {
-  for (const kindIndex of [index.component, index.function]) {
-    for (const capability of kindIndex.values()) {
-      for (const bucket of capability.byMarket.values()) {
-        for (const exact of bucket.exact.values()) {
-          exact.sort(comparePriority);
-        }
-        bucket.ranged.sort((left, right) =>
-          comparePriority(left.declaration, right.declaration),
-        );
-        bucket.fallback.sort(comparePriority);
-      }
-    }
+function sortIndex(index: CapabilityIndex): void {
+  sortKindIndex(index.component);
+  sortKindIndex(index.function);
+}
+
+function sortKindIndex(kindIndex: Map<string, CapabilityBucket>): void {
+  for (const capability of kindIndex.values()) {
+    sortCapabilityBucket(capability);
   }
+}
+
+function sortCapabilityBucket(capability: CapabilityBucket): void {
+  for (const bucket of capability.byMarket.values()) {
+    sortVersionBucket(bucket);
+  }
+}
+
+function sortVersionBucket(bucket: VersionBucket): void {
+  for (const exact of bucket.exact.values()) {
+    exact.sort(comparePriority);
+  }
+  bucket.ranged.sort((left, right) =>
+    comparePriority(left.declaration, right.declaration),
+  );
+  bucket.fallback.sort(comparePriority);
 }
 
 function comparePriority(
