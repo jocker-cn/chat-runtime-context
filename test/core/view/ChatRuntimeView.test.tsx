@@ -242,7 +242,7 @@ describe("ChatRuntimeView response grouping", () => {
       const handle = await runtime.sendLocalMessage({
         id: "connection-error",
         role: "activity",
-        activityType: "error",
+        activityType: " ERROR ",
         content: { message: "Connection interrupted." },
       } as DemoMessage);
       errorTurnId = handle.turnId;
@@ -280,10 +280,7 @@ describe("ChatRuntimeView response grouping", () => {
     );
 
     await act(async () => {
-      await runtime.removeTurn(errorTurnId, {
-        deleteMessages: true,
-        includeInput: true,
-      });
+      await runtime.removeTurn(errorTurnId);
     });
 
     await waitFor(() =>
@@ -300,7 +297,7 @@ describe("ChatRuntimeView response grouping", () => {
       id: "user-error",
       role: "user",
       content: "This message could not be sent.",
-      status: "error",
+      status: "Error",
     };
     let userErrorTurnId = "";
 

@@ -373,6 +373,43 @@ describe("BranchMessageHub streaming notifications", () => {
     hub.dispose();
   });
 
+  it("removes messages from a frozen scope immediately and coalesces notification", () => {
+    const keep = assistantMessage("keep", "keep");
+    const remove = assistantMessage("remove", "remove");
+    const source = new ManualMessageReader<TestMessage>();
+    const frames = new ManualFrameScheduler();
+    const hub = createHub(source, frames);
+    const scope = createTrackingScope(hub);
+    const listener = vi.fn();
+    scope.subscribe(listener);
+
+    source.publish([keep, remove]);
+    frames.flushNext();
+    scope.stopTracking();
+    listener.mockClear();
+
+    source.publish([keep]);
+    scope.removeMessageIds([remove.id]);
+
+    expect(scope.getMessages().map((message) => message.id)).toEqual([
+      keep.id,
+    ]);
+    expect(scope.getMessageIds({ includeInput: false }).has(remove.id)).toBe(
+      false,
+    );
+    expect(listener).not.toHaveBeenCalled();
+    expect(frames.pendingCount).toBe(1);
+
+    frames.flushNext();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(scope.getMessages().map((message) => message.id)).toEqual([
+      keep.id,
+    ]);
+
+    hub.dispose();
+  });
+
   it("materializes the initial snapshot and keeps a no-op stop stable", () => {
     const message = assistantMessage("existing", "initial");
     const source = new ManualMessageReader<TestMessage>();

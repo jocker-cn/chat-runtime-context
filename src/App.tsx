@@ -24,6 +24,7 @@ import type {
 } from "./chat/demo/demoRuntime";
 import styles from "./App.module.css";
 import { AgUiStatusDemoPage } from "./chat/demo/AgUiStatusDemoPage";
+import { SseDemoPage } from "./chat/demo/SseDemoPage";
 
 type DemoMarket = "cn" | "sg" | "us";
 
@@ -231,6 +232,9 @@ export function App() {
   if (window.location.pathname === "/ag-ui-status-demo") {
     return <AgUiStatusDemoPage />;
   }
+  if (window.location.pathname === "/sse-demo") {
+    return <SseDemoPage />;
+  }
   const websocketUrl =
     import.meta.env.VITE_COPILOT_WS_URL ?? "ws://localhost:8080/ws/copilot";
   const demos = useDemoRuntimeControllers(websocketUrl);
@@ -316,7 +320,7 @@ function DemoChats({
               )
             }
           >
-            AI error
+            AI error + tool
           </button>
           <button
             className="error-action"
@@ -329,13 +333,10 @@ function DemoChats({
           >
             Socket close error
           </button>
-          <button
-            className="secondary"
-            type="button"
-            onClick={compareDemo.deleteLastTurn}
-          >
-            Delete last turn
-          </button>
+          <RuntimeOperationButtons
+            controller={compareDemo}
+            sourceBranchId={DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA}
+          />
         </div>
         <SubmissionQueueProvider queue={compareDemo.queue}>
           <SubmissionQueuePanel onEdit={setCompareInput} />
@@ -386,7 +387,7 @@ function DemoChats({
             type="button"
             onClick={() => void singleDemo.addAiError()}
           >
-            AI error
+            AI error + tool
           </button>
           <button
             className="error-action"
@@ -395,13 +396,7 @@ function DemoChats({
           >
             Socket close error
           </button>
-          <button
-            className="secondary"
-            type="button"
-            onClick={singleDemo.deleteLastTurn}
-          >
-            Delete last turn
-          </button>
+          <RuntimeOperationButtons controller={singleDemo} />
         </div>
         <SubmissionQueueProvider queue={singleDemo.queue}>
           <SubmissionQueuePanel onEdit={setSingleInput} />
@@ -423,6 +418,75 @@ function DemoChats({
 
       <CapabilityRegistryDemo />
     </main>
+  );
+}
+
+function RuntimeOperationButtons({
+  controller,
+  sourceBranchId,
+}: {
+  controller: BeComparisonRuntimeController | BeSingleRuntimeController;
+  sourceBranchId?: string;
+}) {
+  return (
+    <>
+      <button
+        className="secondary"
+        type="button"
+        onClick={() => void controller.removeUserMessage()}
+      >
+        Remove user message
+      </button>
+      <button
+        className="secondary"
+        type="button"
+        onClick={() => void controller.removeUserError()}
+      >
+        Remove user error
+      </button>
+      <button
+        className="secondary"
+        type="button"
+        onClick={() => void controller.removeAiError(sourceBranchId)}
+      >
+        Remove AI error response
+      </button>
+      <button
+        className="secondary"
+        type="button"
+        onClick={() => void controller.removeAiResponse(sourceBranchId)}
+      >
+        Remove AI response
+      </button>
+      <button
+        className="secondary"
+        type="button"
+        onClick={() => void controller.clearErrors()}
+      >
+        Clear tail errors
+      </button>
+      <button
+        className="secondary"
+        type="button"
+        onClick={controller.retryUserError}
+      >
+        Retry user error
+      </button>
+      <button
+        className="secondary"
+        type="button"
+        onClick={() => void controller.cancelActiveTurn()}
+      >
+        Cancel active turn
+      </button>
+      <button
+        className="secondary"
+        type="button"
+        onClick={() => void controller.deleteLastTurn()}
+      >
+        Delete last turn
+      </button>
+    </>
   );
 }
 

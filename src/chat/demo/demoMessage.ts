@@ -8,16 +8,19 @@ export interface DemoMessageAction {
 
 export type DemoMessage = Message & {
   actions?: readonly DemoMessageAction[];
-  status?: "error";
+  status?: string;
 };
 
 export type DemoAiErrorMessage = DemoMessage & {
   role: "activity";
-  activityType: "error";
+  activityType: string;
 };
 
 export function isDemoAiErrorMessage(
   message: DemoMessage,
 ): message is DemoAiErrorMessage {
-  return message.role === "activity" && message.activityType === "error";
+  return (
+    message.role === "activity" &&
+    message.activityType?.trim()?.toLowerCase() === "error"
+  );
 }

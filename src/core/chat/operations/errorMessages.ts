@@ -1,11 +1,13 @@
 import type { Message } from "@ag-ui/client";
 import type {
-  ChatBranch,
   ChatMetadata,
   ChatRuntime,
-  ChatTurn,
 } from "../contracts/chat-runtime";
 import type { CompareChatRuntime } from "../runtime/CompareChatRuntime";
+import {
+  clearTransientMessages,
+  type TransientMessageCleanupPolicy,
+} from "./transientMessages";
 
 type MessageDraft<
   TMessage extends Message,
@@ -31,8 +33,20 @@ export type AssistantErrorMessageInput<
   | StandardStringInput<TMessage>
   | MessageDraft<TMessage, "activity", "activityType">;
 
+export interface AssistantResponseTarget {
+  /** Defaults to the last Turn. */
+  turnId?: string;
+  /** Runtime Branch ID. Required when the target Turn has multiple Branches. */
+  branchId?: string;
+}
+
+export const errorMessageCleanupPolicy = {
+  shouldRemoveInput: isUserErrorMessage,
+  shouldRemoveResponse: isAssistantErrorMessage,
+} satisfies TransientMessageCleanupPolicy;
+
 /** Adds one Error Message as an independently tracked local Turn. */
-export async function addErrorMessage<
+async function addErrorMessage<
   TInput = unknown,
   TMessage extends Message = Message,
   TTurnMetadata extends ChatMetadata = ChatMetadata,
@@ -127,11 +141,65 @@ export function addAssistantErrorMessage<
   return addErrorMessage(runtime, message, branchId);
 }
 
+/** Removes the Turn input only when it is a User Error message. */
+export async function removeUserErrorMessage<
+  TInput = unknown,
+  TMessage extends Message = Message,
+  TTurnMetadata extends ChatMetadata = ChatMetadata,
+  TBranchMetadata extends ChatMetadata = ChatMetadata,
+  TSourceMetadata extends ChatMetadata = ChatMetadata,
+>(
+  runtime: CompareChatRuntime<
+    TInput,
+    TMessage,
+    TTurnMetadata,
+    TBranchMetadata,
+    TSourceMetadata
+  >,
+  turnId = runtime.getSnapshot().turnIds.at(-1),
+): Promise<void> {
+  if (!turnId) return;
+
+  await clearTransientMessages(runtime, {
+    shouldRemoveInput: (message, context) =>
+      context.turnId === turnId &&
+      errorMessageCleanupPolicy.shouldRemoveInput(message),
+  });
+}
+
+/** Removes the complete response only when its final message is an AI Error. */
+export async function removeAssistantErrorResponse<
+  TInput = unknown,
+  TMessage extends Message = Message,
+  TTurnMetadata extends ChatMetadata = ChatMetadata,
+  TBranchMetadata extends ChatMetadata = ChatMetadata,
+  TSourceMetadata extends ChatMetadata = ChatMetadata,
+>(
+  runtime: CompareChatRuntime<
+    TInput,
+    TMessage,
+    TTurnMetadata,
+    TBranchMetadata,
+    TSourceMetadata
+  >,
+  target: AssistantResponseTarget = {},
+): Promise<void> {
+  const resolved = resolveAssistantResponseTarget(runtime, target);
+  if (!resolved) return;
+
+  await clearTransientMessages(runtime, {
+    shouldRemoveResponse: (message, context) =>
+      context.turnId === resolved.turn.id &&
+      context.branchId === resolved.branch.id &&
+      errorMessageCleanupPolicy.shouldRemoveResponse(message),
+  });
+}
+
 /**
- * Removes only consecutive Error Turns at the end of the timeline.
- * Physical Source cleanup requires the Source to implement deleteMessages.
+ * Clears transient Error messages only at the timeline tail before a new send.
+ * Normal historical Turns are never scanned or rewritten.
  */
-export async function clearErrorMessagesBeforeSend<
+export function clearErrorMessagesBeforeSend<
   TInput = unknown,
   TMessage extends Message = Message,
   TTurnMetadata extends ChatMetadata = ChatMetadata,
@@ -146,23 +214,7 @@ export async function clearErrorMessagesBeforeSend<
     TSourceMetadata
   >,
 ): Promise<void> {
-  while (true) {
-    const snapshot = runtime.getSnapshot();
-    const turnId = snapshot.turnIds.at(-1);
-    if (!turnId) {
-      return;
-    }
-
-    const turn = snapshot.turnsById[turnId];
-    if (!turn || !isErrorTurn(turn, snapshot.branchesById)) {
-      return;
-    }
-
-    await runtime.removeTurn(turnId, {
-      deleteMessages: true,
-      includeInput: true,
-    });
-  }
+  return clearTransientMessages(runtime, errorMessageCleanupPolicy);
 }
 
 function createErrorMessageId(side: "user" | "assistant") {
@@ -187,45 +239,65 @@ function getDraftId(value: object) {
   return undefined;
 }
 
-function isErrorTurn<
+function resolveAssistantResponseTarget<
+  TInput,
   TMessage extends Message,
   TTurnMetadata extends ChatMetadata,
   TBranchMetadata extends ChatMetadata,
+  TSourceMetadata extends ChatMetadata,
 >(
-  turn: ChatTurn<TMessage, TTurnMetadata>,
-  branchesById: Readonly<
-    Record<string, ChatBranch<TMessage, TBranchMetadata>>
+  runtime: CompareChatRuntime<
+    TInput,
+    TMessage,
+    TTurnMetadata,
+    TBranchMetadata,
+    TSourceMetadata
   >,
+  target: AssistantResponseTarget,
 ) {
-  const branchMessages = turn.branchIds.map(
-    (branchId) =>
-      branchesById[branchId]?.messageReader.getMessages() ?? [],
-  );
+  const snapshot = runtime.getSnapshot();
+  const turnId = target.turnId ?? snapshot.turnIds.at(-1);
+  if (!turnId) return undefined;
 
-  if (isUserErrorMessage(turn.inputMessage)) {
-    return branchMessages.every((messages) => messages.length === 0);
+  const turn = snapshot.turnsById[turnId];
+  if (!turn) {
+    throw new Error(`Turn "${turnId}" does not exist.`);
   }
 
-  if (turn.inputMessage !== undefined || branchMessages.length !== 1) {
-    return false;
+  const branchId =
+    target.branchId ??
+    (turn.branchIds.length === 1 ? turn.branchIds[0] : undefined);
+  if (!branchId) {
+    throw new Error(
+      `Assistant response removal requires branchId for turn "${turnId}".`,
+    );
+  }
+  if (!turn.branchIds.includes(branchId)) {
+    throw new Error(
+      `Branch "${branchId}" does not belong to turn "${turnId}".`,
+    );
   }
 
-  const messages = branchMessages[0]!;
-  return (
-    messages.length === 1 && isAssistantErrorMessage(messages[0])
-  );
+  const branch = snapshot.branchesById[branchId];
+  if (!branch) {
+    throw new Error(`Branch "${branchId}" does not exist.`);
+  }
+
+  return { turn, branch };
 }
 
 function isUserErrorMessage(message: Message | undefined) {
   return (
     message?.role === "user" &&
-    "status" in message &&
-    message.status === "error"
+    (message as Message & { status?: string }).status
+      ?.trim()
+      ?.toLowerCase() === "error"
   );
 }
 
 function isAssistantErrorMessage(message: Message | undefined) {
   return (
-    message?.role === "activity" && message.activityType === "error"
+    message?.role === "activity" &&
+    message.activityType?.trim()?.toLowerCase() === "error"
   );
 }

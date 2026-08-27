@@ -100,11 +100,6 @@ type BranchRunOutcome =
   | { status: "completed" }
   | { status: "error"; error: unknown };
 
-export interface RemoveChatTurnOptions {
-  deleteMessages?: boolean;
-  includeInput?: boolean;
-}
-
 export class CompareChatRuntime<
   TInput = unknown,
   TMessage extends Message = Message,
@@ -527,10 +522,8 @@ export class CompareChatRuntime<
     return cancellation;
   }
 
-  public async removeTurn(
-    turnId: string,
-    options: RemoveChatTurnOptions = {},
-  ): Promise<void> {
+  /** Removes a Turn and its messages when no Source run is active. */
+  public override async removeTurn(turnId: string): Promise<void> {
     this.assertOperational();
 
     const turn = this.snapshot.turnsById[turnId];
@@ -538,45 +531,148 @@ export class CompareChatRuntime<
       return;
     }
 
-    const errors: unknown[] = [];
-    try {
-      await this.cancelRuns({ turnId });
-    } catch (error) {
-      errors.push(error);
+    this.assertNoActiveRuns();
+    await this.deleteTurnMessages(turn);
+    this.removeTurnTopology(turn);
+  }
+
+  /** Removes one User/input while preserving responses between Source runs. */
+  public override async removeTurnInput(turnId: string): Promise<void> {
+    this.assertOperational();
+
+    const turn = this.snapshot.turnsById[turnId];
+    if (!turn) {
+      return;
+    }
+    this.assertNoActiveRuns();
+
+    const inputMessageId = turn.inputMessageId ?? turn.inputMessage?.id;
+    if (!inputMessageId) {
+      this.removeTurnIfEmpty(turnId);
+      return;
     }
 
-    if (options.deleteMessages) {
-      try {
-        await this.deleteTurnMessages(turn, {
-          includeInput: options.includeInput ?? true,
-        });
-      } catch (error) {
-        errors.push(error);
+    const removals = turn.branchIds.flatMap((branchId) => {
+      const branch = this.snapshot.branchesById[branchId];
+      if (!branch) return [];
+
+      const messageScope = this.branchMessageScopesById.get(branchId);
+      const ownsInput = messageScope
+        ? messageScope
+            .getMessageIds({ includeInput: true })
+            .has(inputMessageId)
+        : branch.messageReader
+            .getMessages()
+            .some((message) => message.id === inputMessageId);
+
+      return ownsInput ? [{ branchId, messageIds: [inputMessageId] }] : [];
+    });
+
+    await this.deleteOwnedMessages(turn, removals);
+
+    const turnsById = {
+      ...this.snapshot.turnsById,
+      [turnId]: {
+        ...turn,
+        inputMessage: undefined,
+        inputMessageId: undefined,
+      },
+    };
+    const branchesById = { ...this.snapshot.branchesById };
+    turn.branchIds.forEach((branchId) => {
+      const branch = branchesById[branchId];
+      if (branch?.anchorMessageId === inputMessageId) {
+        branchesById[branchId] = {
+          ...branch,
+          anchorMessageId: undefined,
+        };
+      }
+    });
+
+    this.patchSnapshot({ turnsById, branchesById });
+    this.removeTurnIfEmpty(turnId);
+  }
+
+  /** Removes one Branch response when no Source run is active. */
+  public override async removeBranchResponse(
+    turnId: string,
+    branchId: string,
+  ): Promise<void> {
+    this.assertOperational();
+
+    const turn = this.snapshot.turnsById[turnId];
+    if (!turn) {
+      return;
+    }
+    if (!turn.branchIds.includes(branchId)) {
+      throw new Error(
+        `Branch "${branchId}" does not belong to turn "${turnId}".`,
+      );
+    }
+
+    const branch = this.snapshot.branchesById[branchId];
+    if (!branch) {
+      throw new Error(`Branch "${branchId}" does not exist.`);
+    }
+    this.assertNoActiveRuns();
+
+    const messageScope = this.branchMessageScopesById.get(branchId);
+    const messageIds = messageScope
+      ? [...messageScope.getMessageIds({ includeInput: false })]
+      : branch.messageReader
+          .getMessages()
+          .map((message) => message.id)
+          .filter((messageId) => messageId !== turn.inputMessageId);
+    if (messageIds.length === 0) {
+      this.removeTurnIfEmpty(turnId);
+      return;
+    }
+
+    await this.deleteOwnedMessages(turn, [{ branchId, messageIds }]);
+    this.removeTurnIfEmpty(turnId);
+  }
+
+  /** @internal Returns the final response message in Source order, before UI selection. */
+  public getBranchResponseTailMessage(
+    turnId: string,
+    branchId: string,
+  ): TMessage | undefined {
+    this.assertOperational();
+
+    const turn = this.snapshot.turnsById[turnId];
+    if (!turn) return undefined;
+    if (!turn.branchIds.includes(branchId)) {
+      throw new Error(
+        `Branch "${branchId}" does not belong to turn "${turnId}".`,
+      );
+    }
+
+    const branch = this.snapshot.branchesById[branchId];
+    if (!branch) {
+      throw new Error(`Branch "${branchId}" does not exist.`);
+    }
+
+    const messageScope = this.branchMessageScopesById.get(branchId);
+    const responseMessageIds = messageScope
+      ? messageScope.getMessageIds({ includeInput: false })
+      : new Set(
+          branch.messageReader
+            .getMessages()
+            .map((message) => message.id)
+            .filter((messageId) => messageId !== turn.inputMessageId),
+        );
+    const sourceMessages =
+      this.branchSourcesById.get(branchId)?.source.messageReader?.getMessages() ??
+      branch.messageReader.getMessages();
+
+    for (let index = sourceMessages.length - 1; index >= 0; index -= 1) {
+      const message = sourceMessages[index];
+      if (message && responseMessageIds.has(message.id)) {
+        return message;
       }
     }
 
-    const turnsById = { ...this.snapshot.turnsById };
-    const branchesById = { ...this.snapshot.branchesById };
-
-    delete turnsById[turnId];
-    turn.branchIds.forEach((branchId) => {
-      delete branchesById[branchId];
-      this.branchMessageScopesById.get(branchId)?.dispose();
-      this.branchMessageScopesById.delete(branchId);
-      this.branchSourcesById.delete(branchId);
-    });
-
-    this.patchSnapshot({
-      turnIds: this.snapshot.turnIds.filter((id) => id !== turnId),
-      turnsById,
-      branchesById,
-      activeTurnId:
-        this.snapshot.activeTurnId === turnId
-          ? undefined
-          : this.snapshot.activeTurnId,
-    });
-    this.refreshRuntimeStatus();
-    throwCollectedErrors(errors, `Failed to remove turn "${turnId}".`);
+    return undefined;
   }
 
   public override selectBranch(
@@ -800,6 +896,13 @@ export class CompareChatRuntime<
       const inputMessageId =
         historyTurn.inputMessage?.id ?? historyTurn.inputMessageId;
       const sourceMessageReader = sourceEntry.source.source.messageReader;
+      const inputMessage =
+        historyTurn.inputMessage ??
+        (inputMessageId
+          ? sourceMessageReader
+              ?.getMessages()
+              .find((message) => message.id === inputMessageId)
+          : undefined);
       const messageScope = sourceMessageReader
         ? this.getMessageHub(sourceMessageReader).createScope({
             id: branchId,
@@ -828,7 +931,7 @@ export class CompareChatRuntime<
       turnIds.push(historyTurn.id);
       turnsById[historyTurn.id] = {
         id: historyTurn.id,
-        inputMessage: historyTurn.inputMessage,
+        inputMessage,
         inputMessageId,
         branchIds: [branchId],
         selectedBranchId: branchId,
@@ -953,42 +1056,145 @@ export class CompareChatRuntime<
     this.refreshRuntimeStatus();
   }
 
-  private async deleteTurnMessages(
-    turn: ChatTurn<TMessage, TTurnMetadata>,
-    options: {
-      includeInput: boolean;
-    },
-  ) {
-    const results = await Promise.allSettled(
-      turn.branchIds.map(async (branchId) => {
-        const branch = this.snapshot.branchesById[branchId];
-        const source = this.branchSourcesById.get(branchId);
-        const messageScope = this.branchMessageScopesById.get(branchId);
-        const messageIds =
-          messageScope?.getMessageIds({
-            includeInput: options.includeInput,
-          }) ?? new Set<string>();
+  private async deleteTurnMessages(turn: ChatTurn<TMessage, TTurnMetadata>) {
+    const removals = turn.branchIds.flatMap((branchId) => {
+      const branch = this.snapshot.branchesById[branchId];
+      if (!branch) return [];
 
-        if (branch && source && messageIds.size > 0) {
-          await source.source.deleteMessages?.([...messageIds], {
+      const messageScope = this.branchMessageScopesById.get(branchId);
+      const messageIds = messageScope
+        ? [...messageScope.getMessageIds({ includeInput: true })]
+        : branch.messageReader.getMessages().map((message) => message.id);
+
+      return [{ branchId, messageIds }];
+    });
+
+    await this.deleteOwnedMessages(turn, removals);
+  }
+
+  private async deleteOwnedMessages(
+    turn: ChatTurn<TMessage, TTurnMetadata>,
+    removals: readonly {
+      branchId: string;
+      messageIds: readonly string[];
+    }[],
+  ) {
+    const entries = removals.flatMap(({ branchId, messageIds }) => {
+      if (messageIds.length === 0) return [];
+
+      const branch = this.snapshot.branchesById[branchId];
+      if (!branch) return [];
+
+      const source = this.branchSourcesById.get(branchId);
+      const messageScope = this.branchMessageScopesById.get(branchId);
+      if (messageScope && !source?.source.deleteMessages) {
+        throw new Error(
+          `Source "${branch.sourceId ?? source?.source.id ?? "unknown"}" does not support message deletion.`,
+        );
+      }
+
+      return [{ branchId, branch, source, messageScope, messageIds }];
+    });
+
+    const results = await Promise.allSettled(
+      entries.map(
+        async ({ branchId, branch, source, messageScope, messageIds }) => {
+          await source?.source.deleteMessages?.(messageIds, {
             threadId: this.snapshot.threadId,
             turnId: turn.id,
             branchId,
             sourceId:
-              branch.sourceId ?? source.sourceId ?? source.source.id,
+              branch.sourceId ??
+              source?.sourceId ??
+              source?.source.id ??
+              branchId,
           });
-        }
 
-        if (branch && isMessageStore<TMessage>(branch.messageReader)) {
-          branch.messageReader.setMessages([]);
-        }
-      }),
+          // Multi-Source deletion cannot be atomic. Once one Source succeeds,
+          // commit that same deletion to its frozen projection immediately so
+          // another Source failure cannot leave this Branch displaying stale
+          // messages. Retrying is safe because deletion is idempotent.
+          messageScope?.removeMessageIds(messageIds);
+          if (isMessageStore<TMessage>(branch.messageReader)) {
+            const removedIds = new Set(messageIds);
+            branch.messageReader.setMessages(
+              branch.messageReader
+                .getMessages()
+                .filter((message) => !removedIds.has(message.id)),
+            );
+          }
+        },
+      ),
     );
-
     throwRejectedResults(
       results,
       `Failed to delete messages for turn "${turn.id}".`,
     );
+  }
+
+  private assertNoActiveRuns() {
+    if (this.activeRuns.size > 0) {
+      throw new Error(
+        "Cannot remove messages while the Runtime is running. Cancel it first.",
+      );
+    }
+  }
+
+  private hasBranchResponseMessages(turnId: string, branchId: string) {
+    const turn = this.snapshot.turnsById[turnId];
+    if (!turn) return false;
+
+    const messageScope = this.branchMessageScopesById.get(branchId);
+    if (messageScope) {
+      return messageScope.hasMessages({ includeInput: false });
+    }
+
+    const branch = this.snapshot.branchesById[branchId];
+    return (
+      branch?.messageReader
+        .getMessages()
+        .some((message) => message.id !== turn.inputMessageId) ?? false
+    );
+  }
+
+  private removeTurnIfEmpty(turnId: string) {
+    const turn = this.snapshot.turnsById[turnId];
+    if (
+      !turn ||
+      turn.inputMessage !== undefined ||
+      turn.inputMessageId !== undefined ||
+      turn.branchIds.some((branchId) =>
+        this.hasBranchResponseMessages(turnId, branchId),
+      )
+    ) {
+      return;
+    }
+
+    this.removeTurnTopology(turn);
+  }
+
+  private removeTurnTopology(turn: ChatTurn<TMessage, TTurnMetadata>) {
+    const turnsById = { ...this.snapshot.turnsById };
+    const branchesById = { ...this.snapshot.branchesById };
+
+    delete turnsById[turn.id];
+    turn.branchIds.forEach((branchId) => {
+      delete branchesById[branchId];
+      this.branchMessageScopesById.get(branchId)?.dispose();
+      this.branchMessageScopesById.delete(branchId);
+      this.branchSourcesById.delete(branchId);
+    });
+
+    this.patchSnapshot({
+      turnIds: this.snapshot.turnIds.filter((id) => id !== turn.id),
+      turnsById,
+      branchesById,
+      activeTurnId:
+        this.snapshot.activeTurnId === turn.id
+          ? undefined
+          : this.snapshot.activeTurnId,
+    });
+    this.refreshRuntimeStatus();
   }
 
   private getMessageHub(messageReader: MessageReader<TMessage>) {

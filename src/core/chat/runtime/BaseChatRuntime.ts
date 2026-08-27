@@ -91,6 +91,30 @@ export abstract class BaseChatRuntime<
     );
   }
 
+  public removeTurn(_turnId: string): Promise<void> {
+    this.assertNotDisposed();
+    return Promise.reject(
+      new Error("This ChatRuntime does not support Turn removal."),
+    );
+  }
+
+  public removeTurnInput(_turnId: string): Promise<void> {
+    this.assertNotDisposed();
+    return Promise.reject(
+      new Error("This ChatRuntime does not support input message removal."),
+    );
+  }
+
+  public removeBranchResponse(
+    _turnId: string,
+    _branchId: string,
+  ): Promise<void> {
+    this.assertNotDisposed();
+    return Promise.reject(
+      new Error("This ChatRuntime does not support branch response removal."),
+    );
+  }
+
   public cancel(_target?: ChatCancelTarget): Promise<void> | void {
     this.assertNotDisposed();
   }

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DemoMessage } from "../../../src/chat/demo/demoMessage";
-import { createDemoRuntimeController } from "../../../src/chat/demo/demoRuntime";
+import {
+  createBeSingleRuntime,
+  createDemoRuntimeController,
+} from "../../../src/chat/demo/demoRuntime";
 import {
   CompareChatRuntime,
   SingleAgentRuntime,
@@ -128,6 +131,7 @@ describe("DemoRuntimeController error messages", () => {
         activityType: "error",
         content: {
           message: "The connection was interrupted. Please try again.",
+          code: "DEMO_AI_ERROR_WITH_CONTEXT",
         },
       },
     ]);
@@ -159,6 +163,79 @@ describe("DemoRuntimeController error messages", () => {
         content: "next comparison",
       },
     ]);
+
+    await controller.dispose();
+  });
+
+  it("creates a Reasoning, Tool and AI Error response for cleanup controls", async () => {
+    const controller = createBeSingleRuntime({
+      websocketUrl: "ws://localhost:1/demo-error-scenario",
+      threadId: "demo-error-scenario",
+    });
+
+    await controller.addAiError();
+
+    const addedSnapshot = controller.runtime.getSnapshot();
+    const addedTurnId = addedSnapshot.turnIds.at(-1)!;
+    const addedTurn = addedSnapshot.turnsById[addedTurnId]!;
+    const branchId = addedTurn.branchIds[0]!;
+    expect(
+      addedSnapshot.branchesById[branchId]!.messageReader
+        .getMessages()
+        .map((message) => message.role),
+    ).toEqual(["reasoning", "tool", "activity"]);
+
+    await controller.removeAiError();
+
+    expect(controller.runtime.getSnapshot().turnsById[addedTurnId]).toBeUndefined();
+
+    await controller.addAiError();
+    const nextSnapshot = controller.runtime.getSnapshot();
+    const nextTurnId = nextSnapshot.turnIds.at(-1)!;
+
+    await controller.removeAiResponse();
+
+    expect(
+      controller.runtime.getSnapshot().turnsById[nextTurnId],
+    ).toBeUndefined();
+    await controller.dispose();
+  });
+
+  it("clears and retries the last User Error through the existing queue", async () => {
+    const controlled = createControlledSource("controlled");
+    let turnSequence = 0;
+    const runtime = new SingleAgentRuntime<string, DemoMessage>({
+      source: controlled.source,
+      createTurnId: () => `retry-${++turnSequence}`,
+      createInputMessage: (input, turnId) => ({
+        id: `${turnId}:input`,
+        role: "user",
+        content: input,
+      }),
+    });
+    const controller = createDemoRuntimeController(runtime);
+
+    await controller.addUserError();
+    await controller.clearErrors();
+    expect(runtime.getSnapshot().turnIds).toEqual([]);
+
+    await controller.addUserError();
+    controller.retryUserError();
+
+    await vi.waitFor(() =>
+      expect(controlled.inputs).toEqual(["This message could not be sent."]),
+    );
+    await vi.waitFor(() => expect(runtime.getSnapshot().status).toBe("idle"));
+
+    const snapshot = runtime.getSnapshot();
+    expect(snapshot.turnIds).toEqual(["retry-3"]);
+    expect(snapshot.turnsById["retry-3"]?.inputMessage).toMatchObject({
+      role: "user",
+      content: "This message could not be sent.",
+    });
+    expect(snapshot.turnsById["retry-3"]?.inputMessage).not.toHaveProperty(
+      "status",
+    );
 
     await controller.dispose();
   });

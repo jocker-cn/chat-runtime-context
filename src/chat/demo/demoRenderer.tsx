@@ -39,7 +39,7 @@ export const demoRenderer = createFrameRenderer<DemoMessage>({
 
 function UserMessageCard({ message }: FrameCardProps<DemoMessage>) {
   const contentId = useId();
-  const isError = message.status === "error";
+  const isError = message.status?.trim()?.toLowerCase() === "error";
 
   return (
     <article

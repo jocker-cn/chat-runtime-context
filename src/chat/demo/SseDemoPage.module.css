@@ -1,0 +1,49 @@
+.page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: #101827;
+  color: #ecf2ff;
+}
+
+.panel {
+  width: min(720px, 100%);
+  padding: 32px;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  background: #172033;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #7dd3fc;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+h1 { margin: 8px 0; }
+
+.connection, .hint { color: #b8c4d8; overflow-wrap: anywhere; }
+
+.messages {
+  display: grid;
+  gap: 10px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.messages li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border-radius: 8px;
+  background: #202c42;
+}
+
+.messages time { color: #94a3b8; white-space: nowrap; }
+
+.messages .empty { color: #94a3b8; }

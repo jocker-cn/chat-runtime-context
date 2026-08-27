@@ -5,18 +5,25 @@ import {
   type SocketDisconnectEvent,
 } from "./adapters/socketAdapter";
 import {
+  AgUiAgentSource,
   CompareChatRuntime,
   SingleAgentRuntime,
   addAssistantErrorMessage,
   addUserErrorMessage,
   clearErrorMessagesBeforeSend,
-  createAgUiAgentSource,
+  clearTransientMessages,
   createChatRuntimeQueueTarget,
   createMainBranchHistoryTurns,
   createQueueScheduler,
   createSubmissionQueue,
+  errorMessageCleanupPolicy,
+  removeLastTurn,
 } from "../../core";
-import type { QueueScheduler, SubmissionQueue } from "../../core";
+import type {
+  ChatSourceMessageContext,
+  QueueScheduler,
+  SubmissionQueue,
+} from "../../core";
 import { StaticAnswerSource } from "./source/StaticAnswerSource";
 import type { DemoMessage } from "./demoMessage";
 
@@ -89,6 +96,13 @@ export interface DemoRuntimeController<
   scheduler: QueueScheduler<DemoSubmission>;
   addUserError(sourceBranchId?: string): Promise<void>;
   addAiError(sourceBranchId?: string): Promise<void>;
+  removeUserMessage(): Promise<void>;
+  removeUserError(): Promise<void>;
+  removeAiError(sourceBranchId?: string): Promise<void>;
+  removeAiResponse(sourceBranchId?: string): Promise<void>;
+  clearErrors(): Promise<void>;
+  cancelActiveTurn(): Promise<void>;
+  retryUserError(): void;
   deleteLastTurn(): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -139,12 +153,12 @@ export function createBeComparisonRuntime({
     description: "Agent B",
     threadId: `${threadId}:${DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB}`,
   });
-  const sourceA = createAgUiAgentSource<string>({
+  const sourceA = new DemoAgUiAgentSource({
     id: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
     label: "Agent A",
     agent: agentA,
   });
-  const sourceB = createAgUiAgentSource<string>({
+  const sourceB = new DemoAgUiAgentSource({
     id: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB,
     label: "Agent B",
     agent: agentB,
@@ -239,7 +253,7 @@ export function createBeSingleRuntime({
     threadId,
     initialMessages: historyMessages,
   });
-  const source = createAgUiAgentSource<string>({
+  const source = new DemoAgUiAgentSource({
     id: "agent-single",
     label: "Single Agent",
     agent,
@@ -312,15 +326,155 @@ export function createDemoRuntimeController<
     addAiError: (sourceBranchId) =>
       addAssistantErrorMessage(
         runtime,
-        "The connection was interrupted. Please try again.",
+        {
+          content: {
+            message: "The connection was interrupted. Please try again.",
+            code: DEMO_AI_ERROR_SCENARIO_CODE,
+          },
+        },
         sourceBranchId,
       ),
-    deleteLastTurn: () => deleteLastTurn(runtime),
+    removeAiError: async (sourceBranchId) => {
+      const target = resolveLastAssistantResponseTarget(
+        runtime,
+        sourceBranchId,
+      );
+      if (target) {
+        await clearTransientMessages(runtime, {
+          shouldRemoveResponse: (message, context) =>
+            context.turnId === target.turnId &&
+            context.branchId === target.branchId &&
+            errorMessageCleanupPolicy.shouldRemoveResponse(message),
+        });
+      }
+    },
+    removeAiResponse: async (sourceBranchId) => {
+      const target = resolveLastAssistantResponseTarget(
+        runtime,
+        sourceBranchId,
+      );
+      if (target) {
+        await runtime.removeBranchResponse(target.turnId, target.branchId);
+      }
+    },
+    removeUserMessage: async () => {
+      const turnId = runtime.getSnapshot().turnIds.at(-1);
+      if (turnId) {
+        await runtime.removeTurnInput(turnId);
+      }
+    },
+    removeUserError: async () => {
+      const turnId = runtime.getSnapshot().turnIds.at(-1);
+      if (!turnId) return;
+
+      await clearTransientMessages(runtime, {
+        shouldRemoveInput: (message, context) =>
+          context.turnId === turnId &&
+          errorMessageCleanupPolicy.shouldRemoveInput(message),
+      });
+    },
+    clearErrors: () => clearErrorMessagesBeforeSend(runtime),
+    cancelActiveTurn: async () => {
+      const turnId = runtime.getSnapshot().activeTurnId;
+      if (turnId) {
+        await runtime.cancel({ turnId });
+      }
+    },
+    retryUserError: () => {
+      const text = getLastUserErrorText(runtime);
+      if (text !== undefined) {
+        queue.enqueue({ text });
+      }
+    },
+    deleteLastTurn: () => removeLastTurn(runtime),
     dispose: async () => {
       scheduler.dispose();
       await runtime.dispose();
     },
   };
+}
+
+const DEMO_AI_ERROR_SCENARIO_CODE = "DEMO_AI_ERROR_WITH_CONTEXT";
+
+class DemoAgUiAgentSource extends AgUiAgentSource<string> {
+  public override addLocalMessage(
+    message: Message,
+    context: ChatSourceMessageContext,
+  ): void {
+    if (!isDemoAiErrorScenario(message)) {
+      super.addLocalMessage(message, context);
+      return;
+    }
+
+    const toolCallId = `${message.id}:tool-call`;
+    this.agent.addMessages([
+      {
+        id: `${message.id}:reasoning`,
+        role: "reasoning",
+        content: "Checking the connection and preparing a recovery path.",
+      },
+      {
+        id: `${message.id}:tool`,
+        role: "tool",
+        toolCallId,
+        content: "Connection probe failed before the final answer.",
+      },
+      message,
+    ]);
+  }
+}
+
+function isDemoAiErrorScenario(message: Message) {
+  const content: unknown = message.content;
+  return (
+    message.role === "activity" &&
+    content !== null &&
+    typeof content === "object" &&
+    "code" in content &&
+    content.code === DEMO_AI_ERROR_SCENARIO_CODE
+  );
+}
+
+function resolveLastAssistantResponseTarget(
+  runtime: CompareChatRuntime<string, DemoMessage>,
+  sourceBranchId?: string,
+): { turnId: string; branchId: string } | undefined {
+  const snapshot = runtime.getSnapshot();
+  const turnId = snapshot.turnIds.at(-1);
+  if (!turnId) return undefined;
+
+  const turn = snapshot.turnsById[turnId];
+  const branchId =
+    sourceBranchId === undefined
+      ? turn?.branchIds.length === 1
+        ? turn.branchIds[0]
+        : undefined
+      : turn?.branchIds.find(
+          (candidateId) =>
+            snapshot.branchesById[candidateId]?.sourceId === sourceBranchId,
+        );
+  if (!branchId) {
+    throw new Error(`Unable to resolve a response Branch for turn "${turnId}".`);
+  }
+
+  return { turnId, branchId };
+}
+
+function getLastUserErrorText(
+  runtime: CompareChatRuntime<string, DemoMessage>,
+) {
+  const snapshot = runtime.getSnapshot();
+  const turnId = snapshot.turnIds.at(-1);
+  const message = turnId ? snapshot.turnsById[turnId]?.inputMessage : undefined;
+  if (
+    message?.role !== "user" ||
+    message.status?.trim()?.toLowerCase() !== "error" ||
+    typeof message.content !== "string"
+  ) {
+    return undefined;
+  }
+
+  return message.content;
 }
 
 async function addSocketDisconnectError(
@@ -373,21 +527,6 @@ function waitUntilRuntimeStopsRunning(
     };
     unsubscribe = runtime.subscribe(checkStatus);
     checkStatus();
-  });
-}
-
-async function deleteLastTurn(
-  runtime: CompareChatRuntime<string, DemoMessage>,
-) {
-  const snapshot = runtime.getSnapshot();
-  const turnId = snapshot.turnIds.at(-1);
-  if (!turnId) {
-    return;
-  }
-
-  await runtime.removeTurn(turnId, {
-    deleteMessages: true,
-    includeInput: true,
   });
 }
 

@@ -93,10 +93,7 @@ describe("ChatRuntime local runs", () => {
     expect(branch.messageReader.getMessages()).toEqual([]);
     expect(agent.messages).toEqual([userError]);
 
-    await runtime.removeTurn(handle.turnId, {
-      deleteMessages: true,
-      includeInput: true,
-    });
+    await runtime.removeTurn(handle.turnId);
     expect(agent.messages).toEqual([]);
     expect(runtime.getSnapshot().turnIds).toEqual([]);
 

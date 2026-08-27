@@ -75,6 +75,11 @@ export interface AnswerSource<
 
   cancel?(context: ChatSourceRunContext<TMetadata>): Promise<void> | void;
 
+  /**
+   * The messageReader must reflect the deletion before this resolves.
+   * Deleting an already absent ID must succeed so partial multi-Source
+   * failures can be retried safely.
+   */
   deleteMessages?(
     messageIds: readonly string[],
     context: DeleteSourceMessagesContext,

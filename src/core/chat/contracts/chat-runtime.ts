@@ -150,6 +150,15 @@ export interface ChatRuntime<
     options?: ChatLocalMessageOptions<TTurnMetadata>,
   ): Promise<ChatRunHandle>;
 
+  /** Removes one Turn and all messages it owns. No Source run may be active. */
+  removeTurn(turnId: string): Promise<void>;
+
+  /** Removes one User/input and preserves AI responses. No Source run may be active. */
+  removeTurnInput(turnId: string): Promise<void>;
+
+  /** Removes one Branch response. No Source run may be active. */
+  removeBranchResponse(turnId: string, branchId: string): Promise<void>;
+
   cancel(target?: ChatCancelTarget): Promise<void> | void;
 
   selectBranch(

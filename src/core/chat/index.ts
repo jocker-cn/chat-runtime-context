@@ -33,7 +33,6 @@ export type {
   ChatInputMessageFactory,
   CompareChatRuntimeHistoryTurn,
   CompareChatRuntimeOptions,
-  RemoveChatTurnOptions,
 } from "./runtime/CompareChatRuntime";
 export {
   SingleAgentRuntime,
@@ -51,14 +50,22 @@ export type {
 
 export {
   addAssistantErrorMessage,
-  addErrorMessage,
   addUserErrorMessage,
   clearErrorMessagesBeforeSend,
+  errorMessageCleanupPolicy,
+  removeAssistantErrorResponse,
+  removeUserErrorMessage,
 } from "./operations/errorMessages";
 export type {
+  AssistantResponseTarget,
   AssistantErrorMessageInput,
   UserErrorMessageInput,
 } from "./operations/errorMessages";
+export { clearTransientMessages } from "./operations/transientMessages";
+export type {
+  TransientMessageCleanupPolicy,
+} from "./operations/transientMessages";
+export { removeLastTurn } from "./operations/turns";
 
 export {
   createMainBranchHistoryTurns,

@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@ag-ui/client": "0.0.57",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@xyflow/react": "12.11.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

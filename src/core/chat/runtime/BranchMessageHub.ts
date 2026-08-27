@@ -22,6 +22,9 @@ export interface BranchMessageScope<TMessage extends Message = Message>
   readonly id: string;
   dispose(): void;
   getMessageIds(options: { includeInput: boolean }): ReadonlySet<string>;
+  hasMessages(options: { includeInput: boolean }): boolean;
+  /** Removes owned Source messages while preserving the frozen scope. */
+  removeMessageIds(messageIds: readonly string[]): void;
   /** Commits the current source projection and ignores later source changes. */
   stopTracking(): void;
 }
@@ -90,6 +93,12 @@ export class BranchMessageHub<TMessage extends Message = Message> {
       options,
       () => this.removeScope(options.id),
       () => this.stopTrackingScope(options.id),
+      () => {
+        const currentScope = this.scopes.get(options.id);
+        if (currentScope) {
+          this.markScopeDirty(currentScope);
+        }
+      },
     );
     this.scopes.set(scope.id, scope);
     if (scope.isTracking()) {
@@ -235,12 +244,13 @@ class InternalBranchMessageScope<TMessage extends Message>
 {
   public readonly id: string;
   private readonly baselineMessageIds: ReadonlySet<string>;
-  private readonly inputMessageIds: ReadonlySet<string>;
+  private readonly inputMessageIds: Set<string>;
   private readonly messageIds = new Set<string>();
   private readonly selector?: BranchMessageSelector<TMessage>;
   private readonly context: BranchMessageSelectorContext;
   private readonly onDispose: () => void;
   private readonly onStopTracking: () => void;
+  private readonly onSnapshotChange: () => void;
   private readonly listeners = new Set<() => void>();
   private snapshot: readonly TMessage[] = [];
   private messageSignatures: ReadonlyMap<string, string> = new Map();
@@ -252,6 +262,7 @@ class InternalBranchMessageScope<TMessage extends Message>
     options: BranchMessageScopeOptions<TMessage>,
     onDispose: () => void,
     onStopTracking: () => void,
+    onSnapshotChange: () => void,
   ) {
     this.id = options.id;
     this.context = options.context;
@@ -266,6 +277,7 @@ class InternalBranchMessageScope<TMessage extends Message>
     this.tracking = options.trackNewMessages ?? false;
     this.onDispose = onDispose;
     this.onStopTracking = onStopTracking;
+    this.onSnapshotChange = onSnapshotChange;
   }
 
   subscribe = (listener: () => void) => {
@@ -292,6 +304,39 @@ class InternalBranchMessageScope<TMessage extends Message>
     }
 
     return messageIds;
+  }
+
+  hasMessages({ includeInput }: { includeInput: boolean }) {
+    return (
+      this.messageIds.size > 0 ||
+      (includeInput && this.inputMessageIds.size > 0)
+    );
+  }
+
+  removeMessageIds(messageIds: readonly string[]) {
+    if (this.disposed || messageIds.length === 0) return;
+
+    const removedIds = new Set(messageIds);
+    removedIds.forEach((messageId) => {
+      this.messageIds.delete(messageId);
+      this.inputMessageIds.delete(messageId);
+    });
+
+    const nextSnapshot = this.snapshot.filter(
+      (message) => !removedIds.has(message.id),
+    );
+    if (nextSnapshot.length === this.snapshot.length) return;
+
+    this.snapshot = nextSnapshot;
+    this.messageSignatures = new Map(
+      [...this.messageSignatures].filter(
+        ([messageId]) => !removedIds.has(messageId),
+      ),
+    );
+    if (this.liveMessageId && removedIds.has(this.liveMessageId)) {
+      this.liveMessageId = undefined;
+    }
+    this.onSnapshotChange();
   }
 
   stopTracking() {
