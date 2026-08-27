@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DemoMessage } from "../../../src/chat/demo/demoMessage";
 import {
+  DEMO_RETRY_USER_ERROR_PRIORITY,
   createBeSingleRuntime,
   createDemoRuntimeController,
 } from "../../../src/chat/demo/demoRuntime";
@@ -8,6 +9,7 @@ import {
   CompareChatRuntime,
   SingleAgentRuntime,
   addAssistantErrorMessage,
+  addUserErrorMessage,
   createMessageStore,
   type AnswerSource,
 } from "../../../src/core";
@@ -201,7 +203,7 @@ describe("DemoRuntimeController error messages", () => {
     await controller.dispose();
   });
 
-  it("clears and retries the last User Error through the existing queue", async () => {
+  it("clears all tail Errors and retries the selected User Error first", async () => {
     const controlled = createControlledSource("controlled");
     let turnSequence = 0;
     const runtime = new SingleAgentRuntime<string, DemoMessage>({
@@ -219,21 +221,39 @@ describe("DemoRuntimeController error messages", () => {
     await controller.clearErrors();
     expect(runtime.getSnapshot().turnIds).toEqual([]);
 
-    await controller.addUserError();
-    controller.retryUserError();
+    await addUserErrorMessage(runtime, "Retry this message.");
+    await addUserErrorMessage(runtime, "Newer failed message.");
+    const retryMessage = runtime.getSnapshot().turnsById["retry-2"]
+      ?.inputMessage;
+    expect(retryMessage).toBeDefined();
+
+    controller.scheduler.pause();
+    const ordinary = controller.queue.enqueue({ text: "Already queued" });
+    controller.retryUserError(retryMessage!);
+
+    const retry = controller.queue
+      .list()
+      .find((item) => item.id !== ordinary.id);
+    expect(retry?.priority).toBe(DEMO_RETRY_USER_ERROR_PRIORITY);
+    expect(retry!.priority).toBeGreaterThan(ordinary.priority);
+
+    controller.scheduler.resume();
 
     await vi.waitFor(() =>
-      expect(controlled.inputs).toEqual(["This message could not be sent."]),
+      expect(controlled.inputs).toEqual([
+        "Retry this message.",
+        "Already queued",
+      ]),
     );
     await vi.waitFor(() => expect(runtime.getSnapshot().status).toBe("idle"));
 
     const snapshot = runtime.getSnapshot();
-    expect(snapshot.turnIds).toEqual(["retry-3"]);
-    expect(snapshot.turnsById["retry-3"]?.inputMessage).toMatchObject({
+    expect(snapshot.turnIds).toEqual(["retry-4", "retry-5"]);
+    expect(snapshot.turnsById["retry-4"]?.inputMessage).toMatchObject({
       role: "user",
-      content: "This message could not be sent.",
+      content: "Retry this message.",
     });
-    expect(snapshot.turnsById["retry-3"]?.inputMessage).not.toHaveProperty(
+    expect(snapshot.turnsById["retry-4"]?.inputMessage).not.toHaveProperty(
       "status",
     );
 

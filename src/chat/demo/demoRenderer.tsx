@@ -2,8 +2,11 @@ import type { Message } from "@ag-ui/client";
 import { useEffect, useId } from "react";
 import {
   createFrameRenderer,
+  useChatExtensions,
   useSelectBranch,
+  type ChatExtensionStore,
   type FrameCardProps,
+  type MessageRenderContext,
 } from "../../core";
 import {
   isDemoAiErrorMessage,
@@ -16,6 +19,13 @@ import {
   type ThinkingActivityPhase,
 } from "./thinkingActivity";
 import { ApiRequestAction } from "./ApiRequestAction";
+
+export interface DemoChatExtensions extends ChatExtensionStore {
+  retryUserError?: (
+    message: DemoMessage,
+    context: MessageRenderContext,
+  ) => void;
+}
 
 export const demoRenderer = createFrameRenderer<DemoMessage>({
   cards: {
@@ -37,9 +47,13 @@ export const demoRenderer = createFrameRenderer<DemoMessage>({
   fallback: FallbackMessageCard,
 });
 
-function UserMessageCard({ message }: FrameCardProps<DemoMessage>) {
+function UserMessageCard({
+  message,
+  context,
+}: FrameCardProps<DemoMessage>) {
   const contentId = useId();
   const isError = message.status?.trim()?.toLowerCase() === "error";
+  const { retryUserError } = useChatExtensions<DemoChatExtensions>();
 
   return (
     <article
@@ -53,6 +67,19 @@ function UserMessageCard({ message }: FrameCardProps<DemoMessage>) {
         <strong className="message-card-error-label">Failed to send</strong>
       ) : null}
       <div id={contentId}>{messageText(message)}</div>
+      {isError && retryUserError ? (
+        <div className="message-card-actions">
+          <button
+            className="message-card-retry"
+            type="button"
+            aria-label="Retry user message"
+            title="Retry user message"
+            onClick={() => retryUserError(message, context)}
+          >
+            !
+          </button>
+        </div>
+      ) : null}
     </article>
   );
 }

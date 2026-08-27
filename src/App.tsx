@@ -14,7 +14,10 @@ import {
   createBeComparisonRuntime,
   createBeSingleRuntime,
 } from "./chat/demo/demoRuntime";
-import { demoRenderer } from "./chat/demo/demoRenderer";
+import {
+  demoRenderer,
+  type DemoChatExtensions,
+} from "./chat/demo/demoRenderer";
 import type { FrameCardProps } from "./core";
 import type {
   BeComparisonRuntimeController,
@@ -258,8 +261,20 @@ function DemoChats({
   const { compareDemo, singleDemo } = demos;
   const compareRuntime = compareDemo.runtime;
   const singleRuntime = singleDemo.runtime;
-  const compareExtensions = useMemo(() => createChatExtensionStore(), []);
-  const singleExtensions = useMemo(() => createChatExtensionStore(), []);
+  const compareExtensions = useMemo<DemoChatExtensions>(
+    () =>
+      Object.assign(createChatExtensionStore(), {
+        retryUserError: compareDemo.retryUserError,
+      }),
+    [compareDemo],
+  );
+  const singleExtensions = useMemo<DemoChatExtensions>(
+    () =>
+      Object.assign(createChatExtensionStore(), {
+        retryUserError: singleDemo.retryUserError,
+      }),
+    [singleDemo],
+  );
   const [compareInput, setCompareInput] = useState("帮我总结一下当前发布风险。");
   const [singleInput, setSingleInput] = useState("帮我总结一下当前发布风险。");
 
@@ -464,13 +479,6 @@ function RuntimeOperationButtons({
         onClick={() => void controller.clearErrors()}
       >
         Clear tail errors
-      </button>
-      <button
-        className="secondary"
-        type="button"
-        onClick={controller.retryUserError}
-      >
-        Retry user error
       </button>
       <button
         className="secondary"

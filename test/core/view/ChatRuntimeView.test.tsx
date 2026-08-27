@@ -10,10 +10,14 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoMessage } from "../../../src/chat/demo/demoMessage";
-import { demoRenderer } from "../../../src/chat/demo/demoRenderer";
+import {
+  demoRenderer,
+  type DemoChatExtensions,
+} from "../../../src/chat/demo/demoRenderer";
 import {
   ChatRuntimeView,
   SingleAgentRuntime,
+  createChatExtensionStore,
   createMessageStore,
   type AnswerSource,
   type FrameCardProps,
@@ -221,9 +225,15 @@ describe("ChatRuntimeView response grouping", () => {
       }),
       createTurnId: () => "error-turn",
     });
+    const retryUserError = vi.fn();
+    const extensions: DemoChatExtensions = Object.assign(
+      createChatExtensionStore(),
+      { retryUserError },
+    );
     render(
       <ChatRuntimeView
         runtime={runtime}
+        extensions={extensions}
         renderer={demoRenderer}
         renderInput={(props: FrameCardProps<DemoMessage>) => {
           const Card = demoRenderer.getCard(props.message, props.context);
@@ -319,6 +329,14 @@ describe("ChatRuntimeView response grouping", () => {
     expect(userErrorCard.textContent).toContain("Failed to send");
     expect(userErrorCard.textContent).toContain(
       "This message could not be sent.",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry user message" }),
+    );
+    expect(retryUserError).toHaveBeenCalledTimes(1);
+    expect(retryUserError).toHaveBeenCalledWith(
+      userError,
+      expect.objectContaining({ turnId: userErrorTurnId }),
     );
     expect(
       userErrorTurn.querySelectorAll("[data-runtime-focus-group-id]"),

@@ -419,6 +419,15 @@ p {
   cursor: default;
 }
 
+.message-card-actions .message-card-retry {
+  min-width: 30px;
+  border-color: #d9534f;
+  color: #b42318;
+  font-size: 16px;
+  line-height: 1;
+  padding: 6px 9px;
+}
+
 .api-request-action {
   align-items: flex-start;
   border-top: 1px solid #e3e7ec;

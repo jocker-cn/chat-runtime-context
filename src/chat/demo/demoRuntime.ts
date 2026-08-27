@@ -102,7 +102,7 @@ export interface DemoRuntimeController<
   removeAiResponse(sourceBranchId?: string): Promise<void>;
   clearErrors(): Promise<void>;
   cancelActiveTurn(): Promise<void>;
-  retryUserError(): void;
+  retryUserError(message: DemoMessage): void;
   deleteLastTurn(): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -117,6 +117,8 @@ export const DEMO_COMPARE_SOURCE_BRANCH_IDS = {
   agentA: "agent-a",
   agentB: "agent-b",
 } as const;
+
+export const DEMO_RETRY_USER_ERROR_PRIORITY = Number.MAX_SAFE_INTEGER;
 
 type DemoCompareSourceBranchId =
   (typeof DEMO_COMPARE_SOURCE_BRANCH_IDS)[keyof typeof DEMO_COMPARE_SOURCE_BRANCH_IDS];
@@ -380,10 +382,13 @@ export function createDemoRuntimeController<
         await runtime.cancel({ turnId });
       }
     },
-    retryUserError: () => {
-      const text = getLastUserErrorText(runtime);
+    retryUserError: (message) => {
+      const text = getUserErrorText(message);
       if (text !== undefined) {
-        queue.enqueue({ text });
+        queue.enqueue(
+          { text },
+          { priority: DEMO_RETRY_USER_ERROR_PRIORITY },
+        );
       }
     },
     deleteLastTurn: () => removeLastTurn(runtime),
@@ -460,14 +465,9 @@ function resolveLastAssistantResponseTarget(
   return { turnId, branchId };
 }
 
-function getLastUserErrorText(
-  runtime: CompareChatRuntime<string, DemoMessage>,
-) {
-  const snapshot = runtime.getSnapshot();
-  const turnId = snapshot.turnIds.at(-1);
-  const message = turnId ? snapshot.turnsById[turnId]?.inputMessage : undefined;
+function getUserErrorText(message: DemoMessage) {
   if (
-    message?.role !== "user" ||
+    message.role !== "user" ||
     message.status?.trim()?.toLowerCase() !== "error" ||
     typeof message.content !== "string"
   ) {
