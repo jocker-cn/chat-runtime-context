@@ -33,13 +33,6 @@ export type AssistantErrorMessageInput<
   | StandardStringInput<TMessage>
   | MessageDraft<TMessage, "activity", "activityType">;
 
-export interface AssistantResponseTarget {
-  /** Defaults to the last Turn. */
-  turnId?: string;
-  /** Runtime Branch ID. Required when the target Turn has multiple Branches. */
-  branchId?: string;
-}
-
 export const errorMessageCleanupPolicy = {
   shouldRemoveInput: isUserErrorMessage,
   shouldRemoveResponse: isAssistantErrorMessage,
@@ -141,7 +134,7 @@ export function addAssistantErrorMessage<
   return addErrorMessage(runtime, message, branchId);
 }
 
-/** Removes the Turn input only when it is a User Error message. */
+/** Removes consecutive User Error inputs from the timeline tail. */
 export async function removeUserErrorMessage<
   TInput = unknown,
   TMessage extends Message = Message,
@@ -156,18 +149,13 @@ export async function removeUserErrorMessage<
     TBranchMetadata,
     TSourceMetadata
   >,
-  turnId = runtime.getSnapshot().turnIds.at(-1),
 ): Promise<void> {
-  if (!turnId) return;
-
   await clearTransientMessages(runtime, {
-    shouldRemoveInput: (message, context) =>
-      context.turnId === turnId &&
-      errorMessageCleanupPolicy.shouldRemoveInput(message),
+    shouldRemoveInput: errorMessageCleanupPolicy.shouldRemoveInput,
   });
 }
 
-/** Removes the complete response only when its final message is an AI Error. */
+/** Removes complete AI Error responses from the timeline tail. */
 export async function removeAssistantErrorResponse<
   TInput = unknown,
   TMessage extends Message = Message,
@@ -182,16 +170,9 @@ export async function removeAssistantErrorResponse<
     TBranchMetadata,
     TSourceMetadata
   >,
-  target: AssistantResponseTarget = {},
 ): Promise<void> {
-  const resolved = resolveAssistantResponseTarget(runtime, target);
-  if (!resolved) return;
-
   await clearTransientMessages(runtime, {
-    shouldRemoveResponse: (message, context) =>
-      context.turnId === resolved.turn.id &&
-      context.branchId === resolved.branch.id &&
-      errorMessageCleanupPolicy.shouldRemoveResponse(message),
+    shouldRemoveResponse: errorMessageCleanupPolicy.shouldRemoveResponse,
   });
 }
 
@@ -237,53 +218,6 @@ function getDraftId(value: object) {
   }
 
   return undefined;
-}
-
-function resolveAssistantResponseTarget<
-  TInput,
-  TMessage extends Message,
-  TTurnMetadata extends ChatMetadata,
-  TBranchMetadata extends ChatMetadata,
-  TSourceMetadata extends ChatMetadata,
->(
-  runtime: CompareChatRuntime<
-    TInput,
-    TMessage,
-    TTurnMetadata,
-    TBranchMetadata,
-    TSourceMetadata
-  >,
-  target: AssistantResponseTarget,
-) {
-  const snapshot = runtime.getSnapshot();
-  const turnId = target.turnId ?? snapshot.turnIds.at(-1);
-  if (!turnId) return undefined;
-
-  const turn = snapshot.turnsById[turnId];
-  if (!turn) {
-    throw new Error(`Turn "${turnId}" does not exist.`);
-  }
-
-  const branchId =
-    target.branchId ??
-    (turn.branchIds.length === 1 ? turn.branchIds[0] : undefined);
-  if (!branchId) {
-    throw new Error(
-      `Assistant response removal requires branchId for turn "${turnId}".`,
-    );
-  }
-  if (!turn.branchIds.includes(branchId)) {
-    throw new Error(
-      `Branch "${branchId}" does not belong to turn "${turnId}".`,
-    );
-  }
-
-  const branch = snapshot.branchesById[branchId];
-  if (!branch) {
-    throw new Error(`Branch "${branchId}" does not exist.`);
-  }
-
-  return { turn, branch };
 }
 
 function isUserErrorMessage(message: Message | undefined) {

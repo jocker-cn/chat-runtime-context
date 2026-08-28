@@ -462,7 +462,7 @@ function RuntimeOperationButtons({
       <button
         className="secondary"
         type="button"
-        onClick={() => void controller.removeAiError(sourceBranchId)}
+        onClick={() => void controller.removeAiError()}
       >
         Remove AI error response
       </button>

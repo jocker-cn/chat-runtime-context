@@ -437,7 +437,7 @@ describe("Error Message operations", () => {
       runtime.getSnapshot().turnsById["history-user-error-turn"]?.inputMessage,
     ).toBe(input);
 
-    await removeUserErrorMessage(runtime, "history-user-error-turn");
+    await removeUserErrorMessage(runtime);
 
     expect(runtime.getSnapshot().turnIds).toEqual([]);
     expect(controlled.messageStore.getMessages()).toEqual([]);
@@ -482,9 +482,11 @@ describe("Error Message operations", () => {
     await runtime.dispose();
   });
 
-  it("requires a Runtime branchId when removing from a Compare Turn", async () => {
-    const sourceA = createControlledSource("source-a");
-    const sourceB = createControlledSource("source-b");
+  it("removes Error responses across the Branches of the last Compare Turn", async () => {
+    const errorA = activityMessage("branch-a-error", "ERROR");
+    const errorB = activityMessage("branch-b-error", "ERROR");
+    const sourceA = createControlledSource("source-a", [errorA]);
+    const sourceB = createControlledSource("source-b", [errorB]);
     const runtime = new CompareChatRuntime<string, ErrorMessage>({
       sources: [
         { branchId: "branch-a", source: sourceA.source },
@@ -497,12 +499,16 @@ describe("Error Message operations", () => {
       }),
     });
     const handle = await runtime.send("Question");
+    await vi.waitFor(() => expect(runtime.getSnapshot().status).toBe("idle"));
 
-    await expect(
-      removeAssistantErrorResponse(runtime, {
-        turnId: handle.turnId,
-      }),
-    ).rejects.toThrow("requires branchId");
+    await removeAssistantErrorResponse(runtime);
+
+    expect(sourceA.messageStore.getMessages()).toEqual([]);
+    expect(sourceB.messageStore.getMessages()).toEqual([]);
+    expect(runtime.getSnapshot().turnIds).toEqual([handle.turnId]);
+    expect(
+      runtime.getSnapshot().turnsById[handle.turnId]?.inputMessage?.role,
+    ).toBe("user");
 
     await runtime.dispose();
   });

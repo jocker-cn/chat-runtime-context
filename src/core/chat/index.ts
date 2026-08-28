@@ -57,7 +57,6 @@ export {
   removeUserErrorMessage,
 } from "./operations/errorMessages";
 export type {
-  AssistantResponseTarget,
   AssistantErrorMessageInput,
   UserErrorMessageInput,
 } from "./operations/errorMessages";

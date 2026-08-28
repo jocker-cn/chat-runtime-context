@@ -11,13 +11,13 @@ import {
   addAssistantErrorMessage,
   addUserErrorMessage,
   clearErrorMessagesBeforeSend,
-  clearTransientMessages,
   createChatRuntimeQueueTarget,
   createMainBranchHistoryTurns,
   createQueueScheduler,
   createSubmissionQueue,
-  errorMessageCleanupPolicy,
+  removeAssistantErrorResponse,
   removeLastTurn,
+  removeUserErrorMessage,
 } from "../../core";
 import type {
   ChatSourceMessageContext,
@@ -98,7 +98,7 @@ export interface DemoRuntimeController<
   addAiError(sourceBranchId?: string): Promise<void>;
   removeUserMessage(): Promise<void>;
   removeUserError(): Promise<void>;
-  removeAiError(sourceBranchId?: string): Promise<void>;
+  removeAiError(): Promise<void>;
   removeAiResponse(sourceBranchId?: string): Promise<void>;
   clearErrors(): Promise<void>;
   cancelActiveTurn(): Promise<void>;
@@ -336,20 +336,7 @@ export function createDemoRuntimeController<
         },
         sourceBranchId,
       ),
-    removeAiError: async (sourceBranchId) => {
-      const target = resolveLastAssistantResponseTarget(
-        runtime,
-        sourceBranchId,
-      );
-      if (target) {
-        await clearTransientMessages(runtime, {
-          shouldRemoveResponse: (message, context) =>
-            context.turnId === target.turnId &&
-            context.branchId === target.branchId &&
-            errorMessageCleanupPolicy.shouldRemoveResponse(message),
-        });
-      }
-    },
+    removeAiError: () => removeAssistantErrorResponse(runtime),
     removeAiResponse: async (sourceBranchId) => {
       const target = resolveLastAssistantResponseTarget(
         runtime,
@@ -365,16 +352,7 @@ export function createDemoRuntimeController<
         await runtime.removeTurnInput(turnId);
       }
     },
-    removeUserError: async () => {
-      const turnId = runtime.getSnapshot().turnIds.at(-1);
-      if (!turnId) return;
-
-      await clearTransientMessages(runtime, {
-        shouldRemoveInput: (message, context) =>
-          context.turnId === turnId &&
-          errorMessageCleanupPolicy.shouldRemoveInput(message),
-      });
-    },
+    removeUserError: () => removeUserErrorMessage(runtime),
     clearErrors: () => clearErrorMessagesBeforeSend(runtime),
     cancelActiveTurn: async () => {
       const turnId = runtime.getSnapshot().activeTurnId;
