@@ -1,13 +1,10 @@
 import { AbstractAgent } from "@ag-ui/client";
 import { EventType } from "@ag-ui/client";
 import type {
-  AgentSubscriber,
   ActivitySnapshotEvent,
   BaseEvent,
   Message,
   RunAgentInput,
-  RunAgentParameters,
-  RunAgentResult,
 } from "@ag-ui/client";
 import { Observable } from "rxjs";
 import type {
@@ -17,9 +14,6 @@ import type {
 import { THINKING_ACTIVITY_TYPE } from "../thinkingActivity";
 
 export type BackendMessage = {
-  /** Echo these identifiers to reject late events from previous runs. */
-  runId?: string;
-  threadId?: string;
   isCompleted?: boolean;
   event:
     | "run_started"
@@ -86,7 +80,6 @@ export const SOCKET_DEBUG_EVENT_NAME = "chat-runtime-socket-debug";
 export type WebSocketBackendTransportOptions = {
   parseMessage?: (data: string) => BackendMessage;
   serializeRun?: (input: RunAgentInput) => string;
-  serializeCancel?: (input: RunAgentInput) => string;
   onDebugEvent?: (event: SocketDebugEvent) => void;
 };
 
@@ -100,7 +93,6 @@ export class WebSocketBackendTransport implements BackendTransport {
   private readonly options: WebSocketBackendTransportOptions;
   public onDisconnected?: (event: SocketDisconnectEvent) => void;
   private activeHandlers?: WebSocketRunHandlers;
-  private activeInput?: RunAgentInput;
   private pendingPayloads: string[] = [];
   private socket?: WebSocket;
 
@@ -117,7 +109,6 @@ export class WebSocketBackendTransport implements BackendTransport {
     handlers: WebSocketRunHandlers,
   ) {
     this.activeHandlers = handlers;
-    this.activeInput = input;
     this.send(
       this.options.serializeRun?.(input) ??
         JSON.stringify({
@@ -129,37 +120,21 @@ export class WebSocketBackendTransport implements BackendTransport {
     return () => {
       if (this.activeHandlers === handlers) {
         this.activeHandlers = undefined;
-        this.activeInput = undefined;
-        this.pendingPayloads = [];
       }
     };
   }
 
   cancel(input: RunAgentInput): void {
-    if (
-      !this.activeInput ||
-      this.activeInput.runId !== input.runId ||
-      this.activeInput.threadId !== input.threadId
-    ) {
-      return;
-    }
-
-    const wasQueued = this.pendingPayloads.length > 0;
+    // Drop an unsent run instead of flushing it after cancellation.
     this.pendingPayloads = [];
-    this.activeInput = undefined;
-    this.activeHandlers = undefined;
-
-    // An unsent run must never be flushed after cancellation. Do not reconnect
-    // just to send a cancellation for a run that never reached the backend.
     const socket = this.socket;
-    if (wasQueued || !socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
-    const payload = this.options.serializeCancel?.(input) ??
-      JSON.stringify({
-        event: "cancel",
-        threadId: input.threadId,
-        runId: input.runId,
-      });
+    const payload = JSON.stringify({
+      event: "cancel",
+      threadId: input.threadId,
+      runId: input.runId,
+    });
     this.emitDebugEvent({ direction: "send", payload });
     socket.send(payload);
   }
@@ -199,16 +174,10 @@ export class WebSocketBackendTransport implements BackendTransport {
       });
 
       try {
-        if (!this.activeHandlers) return;
-        const message = this.options.parseMessage?.(payload) ??
-          (JSON.parse(payload) as BackendMessage);
-        if (
-          (message.runId !== undefined && message.runId !== this.activeInput?.runId) ||
-          (message.threadId !== undefined && message.threadId !== this.activeInput?.threadId)
-        ) {
-          return;
-        }
-        this.activeHandlers.onMessage(message);
+        this.activeHandlers?.onMessage(
+          this.options.parseMessage?.(payload) ??
+            (JSON.parse(payload) as BackendMessage),
+        );
       } catch (error) {
         this.activeHandlers?.onError(toError(error));
       }
@@ -269,7 +238,6 @@ export class WebSocketBackendTransport implements BackendTransport {
     this.pendingPayloads = [];
     const handlers = this.activeHandlers;
     this.activeHandlers = undefined;
-    this.activeInput = undefined;
 
     try {
       handlers?.onError(event.error);
@@ -302,16 +270,13 @@ export class WebSocketBackendTransport implements BackendTransport {
   }
 }
 
-type SocketAgentRun = {
-  cancelled: boolean;
-  input?: RunAgentInput;
-  stop?: (error?: Error) => void;
-};
-
 export class SocketAdapterAgent extends AbstractAgent {
   private readonly transport: BackendTransport;
-  private activeRun?: SocketAgentRun;
-  private readonly pendingRuns = new Map<string, SocketAgentRun>();
+  private activeRun?: {
+    input: RunAgentInput;
+    cancelled: boolean;
+    stop: (error?: Error) => void;
+  };
 
   constructor(
     transport: BackendTransport,
@@ -343,54 +308,33 @@ export class SocketAdapterAgent extends AbstractAgent {
     this.transport.close?.();
   }
 
-  override runAgent(
-    parameters?: RunAgentParameters,
-    subscriber?: AgentSubscriber,
-  ): Promise<RunAgentResult> {
-    const runId = parameters?.runId || crypto.randomUUID();
-    const run: SocketAgentRun = { cancelled: false };
-    // AG-UI initializes asynchronously before subscribing to run(). Remember
-    // cancellation here too, so an immediate Runtime cancel cannot start later.
-    this.pendingRuns.set(runId, run);
-    this.activeRun = run;
-    return super.runAgent({ ...parameters, runId }, subscriber).finally(() => {
-      if (this.pendingRuns.get(runId) === run) this.pendingRuns.delete(runId);
-      if (this.activeRun === run) this.activeRun = undefined;
-    });
-  }
-
   override abortRun(): void {
     const run = this.activeRun;
     if (!run || run.cancelled) return;
     run.cancelled = true;
 
     try {
-      if (run.input) this.transport.cancel?.(run.input);
+      this.transport.cancel?.(run.input);
     } catch (error) {
-      // Use the Agent's existing error channel, not an uncaught AbortSignal
-      // listener exception. A failed notification is not a backend acknowledgement.
-      run.stop?.(toError(error));
+      // Report send failures through the subscription, including AbortSignal calls.
+      run.stop(toError(error));
       return;
     }
-    run.stop?.();
+    run.stop();
   }
 
   run(input: RunAgentInput): Observable<BaseEvent> {
     return new Observable<BaseEvent>((subscriber) => {
-      const run: SocketAgentRun = this.pendingRuns.get(input.runId) ?? {
+      const run = {
+        input,
         cancelled: false,
+        stop: (error?: Error) => {
+          if (error) subscriber.error(error);
+          else subscriber.complete();
+        },
       };
-      if (run.cancelled) {
-        subscriber.complete();
-        return;
-      }
       this.activeRun = run;
-      run.stop = (error) => {
-        if (error) subscriber.error(error);
-        else subscriber.complete();
-      };
       subscriber.add(() => {
-        run.stop = undefined;
         if (this.activeRun === run) this.activeRun = undefined;
       });
       const textMessageIds = new Set<string>();
@@ -430,7 +374,6 @@ export class SocketAdapterAgent extends AbstractAgent {
       ensureRunStarted();
       if (subscriber.closed) return;
 
-      run.input = input;
       const disconnect = this.transport.run(input, {
         onMessage: (message) => {
           if (subscriber.closed || run.cancelled) return;
@@ -522,7 +465,7 @@ export class SocketAdapterAgent extends AbstractAgent {
         onError: (error) => subscriber.error(error),
       });
 
-      subscriber.add(disconnect);
+      return () => disconnect();
     });
   }
 }

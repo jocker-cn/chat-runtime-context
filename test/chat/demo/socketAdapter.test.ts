@@ -1,7 +1,6 @@
 /** @vitest-environment jsdom */
 
 import type { RunAgentInput } from "@ag-ui/client";
-import { EventType } from "@ag-ui/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SocketAdapterAgent,
@@ -88,40 +87,6 @@ describe("WebSocketBackendTransport disconnects", () => {
     expect(socket.sent).toHaveLength(1);
   });
 
-  it("ignores tagged late messages from a cancelled run on the reused Socket", () => {
-    vi.stubGlobal("WebSocket", FakeWebSocket);
-    const agent = new SocketAdapterAgent(new WebSocketBackendTransport("ws://localhost/test"));
-    agent.run(runInput("old")).subscribe();
-    const socket = FakeWebSocket.instances[0]!;
-    socket.emitOpen();
-    agent.abortRun();
-    const onNext = vi.fn();
-    const next = agent.run(runInput("new")).subscribe(onNext);
-    onNext.mockClear();
-
-    socket.emitMessage(JSON.stringify({ event: "completed", runId: "old" }));
-    socket.emitMessage(JSON.stringify({ event: "completed", runId: "new", threadId: "other" }));
-    expect(onNext).not.toHaveBeenCalled();
-    expect(next.closed).toBe(false);
-
-    socket.emitMessage(JSON.stringify({ event: "completed", runId: "new", threadId: "thread" }));
-    expect(next.closed).toBe(true);
-    expect(onNext).toHaveBeenCalledWith(expect.objectContaining({ type: EventType.RUN_FINISHED }));
-  });
-
-  it("supports a backend-specific cancellation payload", () => {
-    vi.stubGlobal("WebSocket", FakeWebSocket);
-    const transport = new WebSocketBackendTransport("ws://localhost/test", {
-      serializeCancel: (input) => JSON.stringify({ action: "stop", id: input.runId }),
-    });
-    const agent = new SocketAdapterAgent(transport);
-    agent.run(runInput("custom")).subscribe();
-    const socket = FakeWebSocket.instances[0]!;
-    socket.emitOpen();
-    agent.abortRun();
-    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({ action: "stop", id: "custom" });
-  });
-
   it("stops locally and reports a failed cancellation through the subscription error channel", () => {
     const cancel = vi.fn(() => { throw new Error("cancel send failed"); });
     const disconnect = vi.fn();
@@ -138,24 +103,17 @@ describe("WebSocketBackendTransport disconnects", () => {
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "cancel send failed" }));
   });
 
-  it("cancels before asynchronous Agent initialization without starting a transport run", async () => {
-    const run = vi.fn(() => vi.fn());
-    const cancel = vi.fn();
-    const agent = new SocketAdapterAgent({ run, cancel });
-    let release!: () => void;
-    const initialized = new Promise<void>((resolve) => { release = resolve; });
-    const result = agent.runAgent({ runId: "initializing" }, {
-      onRunInitialized: async () => { await initialized; },
-    });
+  it("marks cancellation before notifying the transport to prevent reentrant cancellation", () => {
+    const disconnect = vi.fn();
+    const cancel = vi.fn(() => agent.abortRun());
+    const agent = new SocketAdapterAgent({ run: () => disconnect, cancel });
+    const subscription = agent.run(runInput("reentrant")).subscribe();
 
     agent.abortRun();
-    agent.abortRun();
-    release();
-    await result;
 
-    expect(run).not.toHaveBeenCalled();
-    expect(cancel).not.toHaveBeenCalled();
-    expect(agent.isRunning).toBe(false);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(subscription.closed).toBe(true);
   });
 
   it("coalesces both Runtime cancellation paths and settles the Agent without a success event", async () => {
