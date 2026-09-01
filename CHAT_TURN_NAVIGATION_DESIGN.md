@@ -924,7 +924,148 @@ flowchart LR
   Workbench --> Dispose["unmount / dispose"]
 ```
 
-### 19.2 标准边界
+### 19.2 右侧 Workbench 与四种非 iframe Renderer
+
+Codex 风格的右侧区域不应该被设计成单一“插件网页容器”，而应该是宿主拥有的 Workbench Shell。顶部菜单、Tab 生命周期、当前激活项、恢复状态、尺寸布局和快捷键由宿主管理；File、Review、Terminal、Browser 和业务 UI 只是不同 Renderer。
+
+```text
+WorkbenchShell
+  ├─ TabBar / ActiveTab / Layout
+  ├─ FileRenderer
+  ├─ ReviewRenderer
+  ├─ TerminalRenderer
+  ├─ BrowserRenderer
+  ├─ DeclarativeRenderer
+  ├─ TrustedRemoteRenderer
+  ├─ WebComponentRenderer
+  └─ WorkerBackedRenderer
+```
+
+Card 或 Tool Message 不直接操作具体组件，只请求打开一个稳定 Target：
+
+```ts
+export type WorkbenchTarget =
+  | { type: "file"; path: string; line?: number }
+  | { type: "review"; turnId?: string }
+  | { type: "terminal"; sessionId: string }
+  | { type: "browser"; url?: string; tabId?: string }
+  | { type: "chart"; spec: ChartSpec }
+  | {
+      type: "plugin";
+      pluginId: string;
+      rendererType: string;
+      payload: unknown;
+    };
+```
+
+Workbench 根据 `target.type` 或 `pluginId + rendererType` 查询 Renderer Registry。这样顶部菜单、Tab 切换以及 `Add to AI` 与底层渲染技术解耦。
+
+#### 方案一：声明式 UI
+
+业务方不传入可执行组件，而是通过 SDK 返回受控 UI schema：
+
+```ts
+interface PluginView {
+  type: "chart" | "table" | "form" | "markdown" | "layout";
+  title: string;
+  content: readonly ViewNode[];
+  actions?: readonly ViewAction[];
+}
+```
+
+真正的 React 组件由宿主渲染。这种方案：
+
+- 与宿主主题、布局、Accessibility 和交互完全一致。
+- 宿主可以直接实现 selection、reference 和 `Add to AI`。
+- 不执行业务 DOM 代码，安全边界和兼容性最好。
+- 适合图表、表格、表单、Markdown、工具结果和文件摘要。
+- 限制是业务 UI 必须遵守宿主支持的 schema，不能任意实现视觉和交互。
+
+声明式 UI 应作为开放插件的默认 UI 能力。
+
+#### 方案二：受信任的远程 Framework Renderer
+
+受信任的内部业务可以通过远程 ESM 注册 `mount()` Renderer，在 mount 内使用 React、Vue 或其他框架。它具备最完整的 UI 自由度，性能和交互也最接近宿主原生组件。
+
+这一方案对应本章后续的 Remote ESM 加载流程。它不是把插件 npm 包安装进宿主，而是运行时加载业务方独立部署的 entry。
+
+限制是远程代码与宿主运行在同一个 JavaScript 环境，拥有与宿主接近的执行权限，因此必须进行来源、版本、权限和发布审核，只适合受信任插件。
+
+#### 方案三：Web Component + Shadow DOM
+
+业务方可以把 UI 注册成 Custom Element，由宿主创建元素并传入 Target 与 Plugin API：
+
+```ts
+customElements.define("order-detail-view", OrderDetailElement);
+```
+
+Shadow DOM 可以降低样式泄漏和 DOM 结构冲突，且不要求双方使用相同框架。它适合技术栈不同、但仍属于受信任范围的团队。
+
+需要明确：
+
+- Shadow DOM 不是安全沙箱。
+- JavaScript 仍然可以访问 `window` 和宿主页面。
+- 全局 Portal、快捷键和主题传递仍需 SDK 约定。
+- Custom Element 名称全局唯一，版本并存需要额外命名或加载策略。
+
+#### 方案四：Worker + 宿主渲染
+
+插件的状态计算、数据转换和业务逻辑运行在 Web Worker；Worker 不能直接操作 DOM，只能向宿主发送 UI schema、state patch、action 和 AI context：
+
+```text
+Plugin Worker
+  ├─ business state
+  ├─ data transformation
+  └─ action handling
+          │
+          │ schema / patch / event
+          ▼
+Host Declarative Renderer
+```
+
+这种方案可以减少业务逻辑阻塞主线程，并比远程 Framework Renderer 更容易控制 UI 权限。它适合计算较重、需要开放给更多业务方，但 UI 又能接受声明式协议的插件。
+
+Worker 同样不是任意代码的完整安全沙箱，仍需要超时、资源、网络和消息大小限制；但因为它不能直接操作 DOM，风险面明显小于远程 ESM Renderer。
+
+#### 四种方案的选择
+
+| 方案 | UI 自由度 | DOM 隔离 | 安全边界 | 框架耦合 | 推荐场景 |
+| --- | --- | --- | --- | --- | --- |
+| 声明式 UI | 中 | 宿主控制 | 最好 | 无 | 开放插件、图表、表格、表单 |
+| 远程 Framework Renderer | 最高 | 无 | 受信任代码 | mount 协议下较低 | 内部复杂业务 UI |
+| Web Component + Shadow DOM | 高 | 样式/结构隔离 | 受信任代码 | 无 | 多技术栈内部团队 |
+| Worker + 宿主渲染 | 中 | 不能直接操作 DOM | 较好 | 无 | 重计算、开放业务逻辑插件 |
+
+推荐优先级：
+
+1. 能表达成 schema 的 UI 使用声明式 Renderer。
+2. 复杂且受信任的内部 UI 使用远程 Framework Renderer。
+3. 跨框架、需要样式封装的可信 UI 使用 Web Component。
+4. 逻辑复杂但 UI 可以受控时使用 Worker + 声明式 Renderer。
+5. 只有必须运行任意且不可信的第三方 UI 时，才回退到 iframe 或桌面独立进程。
+
+#### 统一的 AI 引用能力
+
+四种 Renderer 必须使用同一套 Workbench 协议，不能分别实现 AI 联动：
+
+```ts
+interface WorkbenchRendererHandle {
+  getSelection?(): ContextReference | null;
+  subscribeSelection?(
+    listener: (reference: ContextReference | null) => void,
+  ): () => void;
+  dispose(): void;
+}
+```
+
+- 声明式 Renderer 由宿主直接产生 `ContextReference`。
+- 远程 Framework Renderer 和 Web Component 通过 scoped Plugin API 上报 selection。
+- Worker 通过结构化消息上报 selection/context。
+- Workbench 顶部统一显示 `Add to AI`，再把当前 reference 交给正常的消息/context 流程。
+
+因此，能否实现 Codex 风格的联动主要取决于统一 Workbench Target、Renderer 和 ContextReference 协议，而不是是否使用 iframe。
+
+### 19.3 标准边界
 
 以下部分使用 Web 平台标准：
 
@@ -944,7 +1085,7 @@ flowchart LR
 
 实现可以借鉴 single-spa Parcel 的生命周期和 Module Federation 的远程加载设计，但第一版不需要引入完整微前端框架。
 
-### 19.3 SDK 分层
+### 19.4 SDK 分层
 
 建议把业务开发能力拆成独立包：
 
@@ -966,7 +1107,7 @@ Plugin SDK 应保持轻量，并以 `apiVersion` 而不是具体 Runtime 类型�
 - Workbench 内部 Controller。
 - 其他插件的状态或 DOM。
 
-### 19.4 插件入口与生命周期
+### 19.5 插件入口与生命周期
 
 插件入口建议导出标准模块，而不是只导出一个 React Component：
 
@@ -1007,7 +1148,7 @@ export default definePlugin({
 
 宿主必须显式调用 `activate()`，不要依赖远程模块加载时修改全局变量的副作用。这样才能统一处理权限注入、错误、重复加载和卸载。
 
-### 19.5 Framework-neutral Renderer
+### 19.6 Framework-neutral Renderer
 
 Renderer 不直接要求 React Component，而是使用与框架无关的 mount 协议：
 
@@ -1046,7 +1187,7 @@ export function mountOrderPanel({ container, target, api }) {
 
 这个边界避免宿主依赖业务方的 React 版本，也允许非 React 团队接入。
 
-### 19.6 Plugin API
+### 19.7 Plugin API
 
 建议按照能力域划分 API，并为每个插件创建受权限限制的实例：
 
@@ -1082,7 +1223,7 @@ export interface PluginAPI {
 - 所有 subscription 和 Renderer registration 都必须返回 cleanup。
 - `activate()` 取得的 API 已经绑定 plugin id 和 permissions，插件不能伪造身份。
 
-### 19.7 Manifest 与运行时配置
+### 19.8 Manifest 与运行时配置
 
 Manifest 建议使用版本化、可缓存的静态 JSON：
 
@@ -1124,7 +1265,7 @@ interface RemotePluginConfig {
 7. 缓存加载 Promise，避免并发重复加载。
 8. 禁用、升级或销毁时执行 Renderer cleanup 和 plugin dispose。
 
-### 19.8 构建与部署
+### 19.9 构建与部署
 
 业务方可以使用 Vite、Rollup、Webpack、Rspack 或其他支持 ESM 的构建工具。这里使用 Vite 的 library/build 配置只是为了生成 ESM 入口，并不表示插件需要发布成 npm library。
 
@@ -1165,7 +1306,7 @@ https://plugins.example.com/order-plugin/
 - 已发布版本不可覆盖，保证可回滚和会话可复现。
 - Manifest 的相对 `entry` 必须以 Manifest URL 为基准解析，不能以宿主页面 URL 为基准。
 
-### 19.9 依赖与体积策略
+### 19.10 依赖与体积策略
 
 第一版允许插件把 React 和自身依赖打进远程产物：
 
@@ -1182,7 +1323,7 @@ https://plugins.example.com/order-plugin/
 
 只有在插件数量足够多、重复框架体积已经成为明确问题后，再评估 Module Federation 或 Import Maps 共享 React。不要在第一版提前引入共享依赖协商。
 
-### 19.10 样式、Portal 与宿主联动
+### 19.11 样式、Portal 与宿主联动
 
 受信任插件可以挂载到宿主创建的 Shadow Root，以减少 CSS 冲突：
 
@@ -1199,7 +1340,7 @@ shadowRoot.appendChild(mountPoint);
 - Modal、Tooltip、Dropdown 等 Portal 应通过 Plugin API 请求宿主渲染，或者明确挂载到插件自己的 Shadow Root。
 - 选中内容和 `Add to AI` 统一转换为 `ContextReference`，Workbench 不读取插件内部 DOM。
 
-### 19.11 安全边界
+### 19.12 安全边界
 
 远程 `import()` 的模块与宿主拥有相同的 JavaScript 执行权限。即使使用 Shadow DOM，也可以访问 `window`、DOM、Cookie、Storage 和网络。因此远程 ESM 必须限定为受信任业务插件，并至少具备：
 
@@ -1214,7 +1355,7 @@ shadowRoot.appendChild(mountPoint);
 
 浏览器中不存在“允许任意第三方代码直接操作宿主 DOM，同时又具有完整安全隔离”的方案。不可信 UI 必须使用 iframe、Worker + 声明式宿主渲染，或桌面端独立进程。
 
-### 19.12 与 Runtime Core 的边界
+### 19.13 与 Runtime Core 的边界
 
 这一方案不应该修改：
 
@@ -1239,7 +1380,7 @@ src/plugins/workbench-host/
 
 Workbench Plugin Host 可以订阅 Runtime 的公共状态并向插件投影稳定事件，但插件不能反向写入 Runtime 内部状态。发送消息、添加上下文和打开面板都通过已有公共能力或业务层 Controller 完成。
 
-### 19.13 分阶段实施建议
+### 19.14 分阶段实施建议
 
 第一阶段：
 
@@ -1263,7 +1404,7 @@ Workbench Plugin Host 可以订阅 Runtime 的公共状态并向插件投影稳�
 - 根据真实体积数据决定是否引入 Module Federation/Import Maps。
 - 为不可信插件补充 iframe 或 Worker + 声明式 UI Renderer。
 
-### 19.14 最终建议
+### 19.15 最终建议
 
 第一版保持加载协议简单：
 
