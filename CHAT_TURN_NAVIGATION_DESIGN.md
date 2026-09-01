@@ -887,3 +887,393 @@ Provider
 这一步已经可以验证整体边界是否正确，并且不需要改动 Core。
 
 确认基础闭环稳定后，再加入 Preview、IntersectionObserver、Scrub 和虚拟列表适配。这样可以避免一次性把滚动、观察器、Tooltip、虚拟化和 accessibility 全部耦合在一起。
+
+## 19. 远程 Workbench UI 插件扩展方案
+
+> 补充日期：2026-09-01
+>
+> 目标：允许独立业务 UI 在不进入宿主依赖、不重新构建宿主的前提下，运行时注册 Card/Workbench Renderer，并通过统一 SDK 与 AI、消息引用和宿主面板交互。
+
+这一能力与 Chat Turn Navigation 使用相同的设计原则：它属于可选 View 插件，不进入 Chat Runtime Core。Runtime 仍只负责消息、Turn、Branch 和生命周期；远程 UI 的发现、加载、权限、挂载与卸载由独立的 Workbench Plugin Host 负责。
+
+### 19.1 核心结论
+
+推荐采用以下组合：
+
+```text
+远程 ESM + Plugin Manifest + Plugin SDK + activate/dispose 生命周期
+```
+
+- 业务方在自己的项目中安装 Plugin SDK，不需要把业务插件安装到宿主项目。
+- 业务方可以使用 React、Vue、Svelte 或原生 DOM，最终独立构建为浏览器可加载的 ESM 静态资源。
+- 插件产物独立部署到 CDN/静态资源服务器，由后端或宿主配置 Manifest URL。
+- 宿主启动时只加载 Manifest；用户打开对应 Card/Tab 时才动态加载插件代码。
+- 插件通过标准生命周期主动注册 Renderer，通过受限 Plugin API 与 AI 和 Workbench 交互。
+- 宿主原生 File、Review、Terminal、Browser 等 Renderer 不需要远程化。
+- 任意不可信第三方代码仍使用 iframe 或更强隔离；远程 ESM 只适用于受信任插件。
+
+```mermaid
+flowchart LR
+  Config["运行时插件配置"] --> Manifest["Plugin Manifest"]
+  Manifest --> Registry["Workbench Plugin Registry"]
+  Registry -->|首次打开时| Loader["Remote ESM Loader"]
+  Loader --> Activate["plugin.activate(scopedApi)"]
+  Activate --> Renderer["Remote Renderer Registration"]
+  Renderer --> Mount["mount(container, target, api)"]
+  Mount --> Workbench["Workbench Tab / Card"]
+  Workbench --> Dispose["unmount / dispose"]
+```
+
+### 19.2 标准边界
+
+以下部分使用 Web 平台标准：
+
+- ESM `import` / `export`。
+- 动态 `import(url)`。
+- HTTPS、CORS 和浏览器缓存。
+- 可选的 Import Maps、Shadow DOM 和 Web Components。
+
+以下部分是本项目需要定义和维护的插件协议，不存在可以直接复用的统一行业标准：
+
+- `plugin.json` Manifest 格式。
+- `activate()` / `dispose()` 生命周期。
+- Renderer 注册与 `mount()` / `unmount()` 契约。
+- Plugin API、权限和事件协议。
+- AI context、selection、reference 和 message payload 约定。
+- `apiVersion` 兼容、禁用、升级与回滚规则。
+
+实现可以借鉴 single-spa Parcel 的生命周期和 Module Federation 的远程加载设计，但第一版不需要引入完整微前端框架。
+
+### 19.3 SDK 分层
+
+建议把业务开发能力拆成独立包：
+
+```text
+@chat-runtime/plugin-types   纯类型和协议
+@chat-runtime/plugin-sdk     definePlugin、注册、事件和宿主能力封装
+@chat-runtime/plugin-react   可选 React hooks/Provider
+@chat-runtime/plugin-ui      可选统一主题和基础 UI 组件
+@chat-runtime/plugin-cli     可选开发、构建、Manifest 校验工具
+```
+
+业务方安装这些包只影响自己的构建。宿主不安装业务插件，业务插件也不进入宿主首屏 bundle。
+
+Plugin SDK 应保持轻量，并以 `apiVersion` 而不是具体 Runtime 类型作为兼容边界。插件不能直接取得：
+
+- `ChatRuntime` 实例。
+- 宿主 Zustand Store。
+- Message Queue 内部结构。
+- Workbench 内部 Controller。
+- 其他插件的状态或 DOM。
+
+### 19.4 插件入口与生命周期
+
+插件入口建议导出标准模块，而不是只导出一个 React Component：
+
+```ts
+export interface RemotePluginModule {
+  readonly id: string;
+  readonly apiVersion: string;
+
+  activate(
+    api: PluginAPI,
+  ):
+    | void
+    | (() => void)
+    | Promise<void | (() => void)>;
+}
+```
+
+业务插件示例：
+
+```ts
+import { definePlugin } from "@chat-runtime/plugin-sdk";
+import { mountOrderPanel } from "./OrderPanel";
+
+export default definePlugin({
+  id: "order-plugin",
+  apiVersion: "1",
+
+  activate(api) {
+    const unregister = api.ui.registerRenderer({
+      type: "order-detail",
+      mount: mountOrderPanel,
+    });
+
+    return () => unregister();
+  },
+});
+```
+
+宿主必须显式调用 `activate()`，不要依赖远程模块加载时修改全局变量的副作用。这样才能统一处理权限注入、错误、重复加载和卸载。
+
+### 19.5 Framework-neutral Renderer
+
+Renderer 不直接要求 React Component，而是使用与框架无关的 mount 协议：
+
+```ts
+export interface RemoteRenderer<TTarget = unknown> {
+  readonly type: string;
+
+  mount(options: {
+    container: HTMLElement;
+    target: TTarget;
+    api: RendererPluginAPI;
+  }): void | (() => void) | Promise<void | (() => void)>;
+}
+```
+
+业务方可以在 `mount()` 内部自行创建 React root、Vue app 或其他 UI 实例。关闭 Card/Tab、切换插件版本或销毁 Workbench 时，宿主调用返回的 cleanup。
+
+React 插件示例：
+
+```tsx
+import { createRoot } from "react-dom/client";
+
+export function mountOrderPanel({ container, target, api }) {
+  const root = createRoot(container);
+
+  root.render(
+    <OrderPanel
+      orderId={target.orderId}
+      onAddReference={(reference) => api.ai.addContext(reference)}
+    />,
+  );
+
+  return () => root.unmount();
+}
+```
+
+这个边界避免宿主依赖业务方的 React 版本，也允许非 React 团队接入。
+
+### 19.6 Plugin API
+
+建议按照能力域划分 API，并为每个插件创建受权限限制的实例：
+
+```ts
+export interface PluginAPI {
+  readonly ui: {
+    registerRenderer(renderer: RemoteRenderer): () => void;
+    open(target: WorkbenchTarget): void;
+    close(tabId?: string): void;
+    setSelection(reference: ContextReference | null): void;
+  };
+
+  readonly ai: {
+    addContext(context: AIContext): void;
+    sendMessage(message: PluginMessage): Promise<void>;
+    subscribe(listener: AIEventListener): () => void;
+  };
+
+  readonly host: {
+    getTheme(): ThemeSnapshot;
+    getLocale(): string;
+    getPluginConfig<T>(): T;
+    subscribeTheme(listener: ThemeListener): () => void;
+  };
+}
+```
+
+需要统一约定：
+
+- 插件上报给 AI 的 context/reference 必须是可序列化数据，不能直接传 DOM 或 React state。
+- 插件主动发送消息时仍进入宿主正常发送流程，插件本身不操作 Message Queue。
+- AI 订阅返回的是稳定的公共事件，不暴露 Agent Adapter 内部事件。
+- 所有 subscription 和 Renderer registration 都必须返回 cleanup。
+- `activate()` 取得的 API 已经绑定 plugin id 和 permissions，插件不能伪造身份。
+
+### 19.7 Manifest 与运行时配置
+
+Manifest 建议使用版本化、可缓存的静态 JSON：
+
+```json
+{
+  "id": "order-plugin",
+  "name": "Order Plugin",
+  "version": "1.3.2",
+  "apiVersion": "1",
+  "entry": "./entry-a8d721.js",
+  "renderers": ["order-detail"],
+  "permissions": [
+    "ui.registerRenderer",
+    "ui.open",
+    "ai.addContext",
+    "ai.sendMessage"
+  ]
+}
+```
+
+宿主侧运行时配置只需要保存 Manifest 地址以及启用状态：
+
+```ts
+interface RemotePluginConfig {
+  readonly manifestUrl: string;
+  readonly enabled: boolean;
+  readonly config?: Readonly<Record<string, unknown>>;
+}
+```
+
+加载顺序：
+
+1. 获取并校验 Manifest。
+2. 检查 plugin id、`apiVersion`、来源和权限。
+3. 将 Manifest 中的 Renderer type 登记为 lazy placeholder。
+4. 用户首次打开对应 Renderer 时执行动态 `import(entryUrl)`。
+5. 创建 scoped Plugin API 并调用 `activate()`。
+6. 确认插件实际注册了声明的 Renderer。
+7. 缓存加载 Promise，避免并发重复加载。
+8. 禁用、升级或销毁时执行 Renderer cleanup 和 plugin dispose。
+
+### 19.8 构建与部署
+
+业务方可以使用 Vite、Rollup、Webpack、Rspack 或其他支持 ESM 的构建工具。这里使用 Vite 的 library/build 配置只是为了生成 ESM 入口，并不表示插件需要发布成 npm library。
+
+典型产物：
+
+```text
+dist/
+  plugin.json
+  entry-a8d721.js
+  chunks/
+    order-panel-831ca2.js
+  assets/
+    style-d82691.css
+```
+
+必须完整部署整个 `dist`，保留相对路径，因为 entry 可能继续加载 chunk 和 assets。
+
+推荐部署结构：
+
+```text
+https://plugins.example.com/order-plugin/
+  latest.json
+  versions/
+    1.3.2/
+      plugin.json
+      entry-a8d721.js
+      chunks/
+      assets/
+```
+
+部署目标可以是 Nginx、S3/CloudFront、Azure Blob/CDN、Cloudflare R2/Pages 或其他静态资源服务。需要满足：
+
+- 全站 HTTPS。
+- JavaScript 返回正确的 `Content-Type`。
+- CORS 只允许需要加载插件的宿主 Origin。
+- hash/version 资源使用长期 immutable cache。
+- `latest.json` 使用短缓存或显式重新验证。
+- 已发布版本不可覆盖，保证可回滚和会话可复现。
+- Manifest 的相对 `entry` 必须以 Manifest URL 为基准解析，不能以宿主页面 URL 为基准。
+
+### 19.9 依赖与体积策略
+
+第一版允许插件把 React 和自身依赖打进远程产物：
+
+- 不增加宿主首屏 bundle。
+- 只有实际打开插件时才产生下载和内存成本。
+- 不会因为共享 React 产生早期的宿主/插件版本耦合。
+
+配套策略：
+
+- 按需加载并缓存同一版本的 import Promise。
+- Card hover、即将打开或浏览器 idle 时可选预加载。
+- 插件关闭时必须 unmount，但已下载模块通常保留浏览器缓存。
+- 大型编辑器、图表和数据资源由插件内部继续 lazy load。
+
+只有在插件数量足够多、重复框架体积已经成为明确问题后，再评估 Module Federation 或 Import Maps 共享 React。不要在第一版提前引入共享依赖协商。
+
+### 19.10 样式、Portal 与宿主联动
+
+受信任插件可以挂载到宿主创建的 Shadow Root，以减少 CSS 冲突：
+
+```ts
+const shadowRoot = host.attachShadow({ mode: "open" });
+const mountPoint = document.createElement("div");
+shadowRoot.appendChild(mountPoint);
+```
+
+需要注意：
+
+- Shadow DOM 只是样式和 DOM 封装，不是安全边界。
+- 插件需要从 SDK 获取 theme tokens，不能假设宿主 CSS 可以穿透 Shadow Root。
+- Modal、Tooltip、Dropdown 等 Portal 应通过 Plugin API 请求宿主渲染，或者明确挂载到插件自己的 Shadow Root。
+- 选中内容和 `Add to AI` 统一转换为 `ContextReference`，Workbench 不读取插件内部 DOM。
+
+### 19.11 安全边界
+
+远程 `import()` 的模块与宿主拥有相同的 JavaScript 执行权限。即使使用 Shadow DOM，也可以访问 `window`、DOM、Cookie、Storage 和网络。因此远程 ESM 必须限定为受信任业务插件，并至少具备：
+
+- HTTPS 和来源 allowlist。
+- 固定、不可覆盖的版本 URL。
+- Manifest 与 `apiVersion` 校验。
+- 权限声明和 scoped API。
+- 发布审核或签名/完整性校验。
+- 加载失败、渲染错误和异步 rejection 隔离。
+- 加载超时、禁用和版本回滚机制。
+- Renderer 与订阅泄漏监控。
+
+浏览器中不存在“允许任意第三方代码直接操作宿主 DOM，同时又具有完整安全隔离”的方案。不可信 UI 必须使用 iframe、Worker + 声明式宿主渲染，或桌面端独立进程。
+
+### 19.12 与 Runtime Core 的边界
+
+这一方案不应该修改：
+
+- `ChatRuntimeSnapshot`。
+- `BranchMessageHub`。
+- `FrameSlot`。
+- Agent Adapter 协议。
+- Message Queue 内部实现。
+
+建议新增独立层：
+
+```text
+src/plugins/workbench-host/
+  contracts.ts
+  PluginManifest.ts
+  RemotePluginLoader.ts
+  PluginRegistry.ts
+  createScopedPluginAPI.ts
+  RemoteRendererHost.tsx
+  index.ts
+```
+
+Workbench Plugin Host 可以订阅 Runtime 的公共状态并向插件投影稳定事件，但插件不能反向写入 Runtime 内部状态。发送消息、添加上下文和打开面板都通过已有公共能力或业务层 Controller 完成。
+
+### 19.13 分阶段实施建议
+
+第一阶段：
+
+- 定义 `plugin.json`、`apiVersion` 和 Plugin SDK types。
+- 实现 Remote ESM loader、加载 Promise 缓存和 `activate/dispose`。
+- 实现 `registerRenderer()` 与 framework-neutral `mount()`。
+- 支持 runtime config、来源 allowlist 和 Error Boundary。
+- 提供一个独立部署的最小 React 示例插件。
+
+第二阶段：
+
+- `ai.addContext()`、`ai.sendMessage()` 和 AI event subscription。
+- selection/reference 与 `Add to AI`。
+- 主题、语言、宿主 Overlay/Portal 能力。
+- 插件权限、禁用、升级和回滚。
+
+第三阶段：
+
+- SDK CLI、Manifest schema 校验和本地联调服务。
+- 预加载、性能观测和插件资源诊断。
+- 根据真实体积数据决定是否引入 Module Federation/Import Maps。
+- 为不可信插件补充 iframe 或 Worker + 声明式 UI Renderer。
+
+### 19.14 最终建议
+
+第一版保持加载协议简单：
+
+```text
+Runtime Config
+  + Versioned Manifest
+  + Remote ESM import
+  + activate/dispose
+  + registerRenderer/mount
+  + Scoped Plugin API
+```
+
+业务方仍然可以使用完整的 SDK 主动注册组件、上报 AI context、发送消息和监听公共状态，但其 UI 构建、依赖和部署完全独立。未来如果将 ESM loader 替换为 Module Federation，上层 Manifest、Plugin SDK、Renderer 和 AI 交互协议可以保持不变。
