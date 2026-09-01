@@ -1,41 +1,16 @@
 import { AbstractAgent } from "@ag-ui/client";
-import { EventType } from "@ag-ui/client";
 import type {
-  ActivitySnapshotEvent,
   BaseEvent,
   Message,
   RunAgentInput,
 } from "@ag-ui/client";
 import { Observable } from "rxjs";
-import type {
-  ThinkingActivityContent,
-  ThinkingActivityPhase,
-} from "../thinkingActivity";
-import { THINKING_ACTIVITY_TYPE } from "../thinkingActivity";
+import {
+  createBackendMessageEventConverter,
+  type BackendMessage,
+} from "./backendMessage";
 
-export type BackendMessage = {
-  isCompleted?: boolean;
-  event:
-    | "run_started"
-    | "thinking_started"
-    | "thinking_delta"
-    | "thinking_completed"
-    | "streaming_started"
-    | "streaming"
-    | "streaming_completed"
-    | "function_call"
-    | "messages_snapshot"
-    | "completed"
-    | "error";
-  messages?: Message[];
-  message?: {
-    id?: string;
-    content?: string;
-    name?: string;
-    arguments?: Record<string, unknown>;
-  };
-  error?: string;
-};
+export type { BackendMessage } from "./backendMessage";
 
 export type BackendTransport = {
   close?: () => void;
@@ -339,135 +314,18 @@ export class SocketAdapterAgent extends AbstractAgent {
       subscriber.add(() => {
         if (this.activeRun === run) this.activeRun = undefined;
       });
-      const textMessageIds = new Set<string>();
-      const thinkingMessageId = `thinking:${input.runId}`;
-      let thinkingPhase: ThinkingActivityPhase = "processing";
-      let thinkingText = "";
-      let toolCallIndex = 0;
-      let hasRunStarted = false;
-
       const emit = (event: BaseEvent) => subscriber.next(event);
-      const emitThinkingSnapshot = () => {
-        const content: ThinkingActivityContent = {
-          phase: thinkingPhase,
-          text: thinkingText,
-        };
-        const event: ActivitySnapshotEvent = {
-          type: EventType.ACTIVITY_SNAPSHOT,
-          messageId: thinkingMessageId,
-          activityType: THINKING_ACTIVITY_TYPE,
-          content,
-          replace: true,
-        };
-
-        emit(event);
-      };
-      const ensureRunStarted = () => {
-        if (hasRunStarted) return;
-        hasRunStarted = true;
-        emit({
-          type: EventType.RUN_STARTED,
-          threadId: input.threadId,
-          runId: input.runId,
-        });
-        emitThinkingSnapshot();
-      };
-
-      ensureRunStarted();
+      const converter = createBackendMessageEventConverter(input);
+      converter.start().forEach(emit);
       if (subscriber.closed) return;
 
       const disconnect = this.transport.run(input, {
         onMessage: (message) => {
           if (subscriber.closed || run.cancelled) return;
-          const messageId = message.message?.id ?? `assistant-${input.runId}`;
-          ensureRunStarted();
-
-          switch (message.event) {
-            case "run_started":
-              break;
-            case "thinking_started": {
-              thinkingPhase = "thought";
-              emitThinkingSnapshot();
-              break;
-            }
-            case "thinking_delta": {
-              thinkingPhase = "thought";
-              thinkingText += message.message?.content ?? "";
-              emitThinkingSnapshot();
-              break;
-            }
-            case "thinking_completed":
-              break;
-            case "streaming_started": {
-              thinkingPhase = "answering";
-              emitThinkingSnapshot();
-              textMessageIds.add(messageId);
-              emit({
-                type: EventType.TEXT_MESSAGE_START,
-                messageId,
-                role: "assistant",
-              });
-              break;
-            }
-            case "streaming":
-              emit({
-                type: EventType.TEXT_MESSAGE_CONTENT,
-                messageId,
-                delta: message.message?.content ?? "",
-              });
-              break;
-            case "streaming_completed":
-              if (textMessageIds.delete(messageId)) {
-                emit({
-                  type: EventType.TEXT_MESSAGE_END,
-                  messageId,
-                });
-              }
-              break;
-            case "function_call": {
-              const toolCallId = `tool-${input.runId}-${toolCallIndex++}-${
-                message.message?.name ?? "unknown"
-              }`;
-              emit({
-                type: EventType.TOOL_CALL_START,
-                toolCallId,
-                toolCallName: message.message?.name ?? "unknown",
-              });
-              emit({
-                type: EventType.TOOL_CALL_ARGS,
-                toolCallId,
-                delta: JSON.stringify(message.message?.arguments ?? {}),
-              });
-              emit({
-                type: EventType.TOOL_CALL_END,
-                toolCallId,
-              });
-              break;
-            }
-            case "messages_snapshot":
-              emit({
-                type: EventType.MESSAGES_SNAPSHOT,
-                messages: message.messages ?? [],
-              });
-              break;
-            case "completed":
-              thinkingPhase = "completed";
-              emitThinkingSnapshot();
-              emit({
-                type: EventType.RUN_FINISHED,
-                threadId: input.threadId,
-                runId: input.runId,
-                outcome: { type: "success" },
-              });
-              subscriber.complete();
-              break;
-            case "error":
-              emit({
-                type: EventType.RUN_ERROR,
-                message: message.error ?? "Socket backend error.",
-              });
-              subscriber.complete();
-              break;
+          const conversion = converter.convert(message);
+          conversion.events.forEach(emit);
+          if (conversion.terminal) {
+            subscriber.complete();
           }
         },
         onError: (error) => subscriber.error(error),
