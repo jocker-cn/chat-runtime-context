@@ -26,6 +26,10 @@ import type {
 } from "../../core";
 import { StaticAnswerSource } from "./source/StaticAnswerSource";
 import type { DemoMessage } from "./demoMessage";
+import {
+  observeAgUiAgentLifecycle,
+  type AgUiLifecycleNotification,
+} from "../../plugins";
 
 export type { DemoMessage } from "./demoMessage";
 
@@ -165,6 +169,14 @@ export function createBeComparisonRuntime({
     label: "Agent B",
     agent: agentB,
   });
+  const unsubscribeAgentA = observeDemoAgentLifecycle(
+    agentA,
+    DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
+  );
+  const unsubscribeAgentB = observeDemoAgentLifecycle(
+    agentB,
+    DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB,
+  );
 
   const runtime = new CompareChatRuntime<string, DemoMessage>({
     threadId,
@@ -226,6 +238,11 @@ export function createBeComparisonRuntime({
   };
   return {
     ...controller,
+    dispose: async () => {
+      unsubscribeAgentA();
+      unsubscribeAgentB();
+      await controller.dispose();
+    },
     socket: {
       closeWithError: (sourceBranchId) => {
         const agent =
@@ -260,6 +277,7 @@ export function createBeSingleRuntime({
     label: "Single Agent",
     agent,
   });
+  const unsubscribeAgent = observeDemoAgentLifecycle(agent, "agent-single");
 
   const runtime = new SingleAgentRuntime<string, DemoMessage>({
     threadId,
@@ -288,6 +306,10 @@ export function createBeSingleRuntime({
   };
   return {
     ...controller,
+    dispose: async () => {
+      unsubscribeAgent();
+      await controller.dispose();
+    },
     socket: {
       closeWithError: () => {
         agent.close({ notifyDisconnected: true });
@@ -530,6 +552,22 @@ function createSocketAgent({
       initialMessages,
     },
   );
+}
+
+function observeDemoAgentLifecycle(
+  agent: SocketAdapterAgent,
+  sourceId: string,
+) {
+  return observeAgUiAgentLifecycle(agent, {
+    sourceId,
+    onNotification: handleDemoAgUiLifecycleNotification,
+  });
+}
+
+function handleDemoAgUiLifecycleNotification(
+  _notification: AgUiLifecycleNotification,
+) {
+  // TODO: Forward normalized AG-UI lifecycle notifications to business Zustand actions.
 }
 
 function createSourceAMockHistory(): DemoMessage[] {

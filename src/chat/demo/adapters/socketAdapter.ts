@@ -24,8 +24,10 @@ export type BackendMessage = {
     | "streaming"
     | "streaming_completed"
     | "function_call"
+    | "messages_snapshot"
     | "completed"
     | "error";
+  messages?: Message[];
   message?: {
     id?: string;
     content?: string;
@@ -442,6 +444,12 @@ export class SocketAdapterAgent extends AbstractAgent {
               });
               break;
             }
+            case "messages_snapshot":
+              emit({
+                type: EventType.MESSAGES_SNAPSHOT,
+                messages: message.messages ?? [],
+              });
+              break;
             case "completed":
               thinkingPhase = "completed";
               emitThinkingSnapshot();

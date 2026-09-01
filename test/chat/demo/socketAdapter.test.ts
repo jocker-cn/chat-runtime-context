@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 
-import type { RunAgentInput } from "@ag-ui/client";
+import { EventType } from "@ag-ui/client";
+import type { BaseEvent, RunAgentInput } from "@ag-ui/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   SocketAdapterAgent,
@@ -295,6 +296,35 @@ describe("WebSocketBackendTransport disconnects", () => {
 
     expect(onDisconnected).not.toHaveBeenCalled();
     subscription.unsubscribe();
+  });
+
+  it("maps backend Message snapshots to the standard AG-UI event", () => {
+    let onMessage: ((message: {
+      event: "messages_snapshot";
+      messages: Array<{ id: string; role: "assistant"; content: string }>;
+    }) => void) | undefined;
+    const agent = new SocketAdapterAgent({
+      run: (_input, handlers) => {
+        onMessage = handlers.onMessage;
+        return () => undefined;
+      },
+    });
+    const events: BaseEvent[] = [];
+    agent.run(runInput("snapshot")).subscribe((event) => events.push(event));
+
+    onMessage?.({
+      event: "messages_snapshot",
+      messages: [
+        { id: "snapshot-message", role: "assistant", content: "merged" },
+      ],
+    });
+
+    expect(events.at(-1)).toEqual({
+      type: EventType.MESSAGES_SNAPSHOT,
+      messages: [
+        { id: "snapshot-message", role: "assistant", content: "merged" },
+      ],
+    });
   });
 });
 
