@@ -1,9 +1,9 @@
 import type { Message } from "@ag-ui/client";
 import {
-  SocketAdapterAgent,
-  WebSocketBackendTransport,
-  type SocketDisconnectEvent,
-} from "./adapters/socketAdapter";
+  BackendTransportAgent,
+  type BackendTransportDisconnectEvent,
+} from "./adapters/backendTransportAgent";
+import { WebSocketBackendTransport } from "./adapters/webSocketBackendTransport";
 import {
   AgUiAgentSource,
   CompareChatRuntime,
@@ -481,7 +481,7 @@ async function addSocketDisconnectError(
   runtime: CompareChatRuntime<string, DemoMessage>,
   queue: SubmissionQueue<DemoSubmission>,
   sourceBranchId: string,
-  event: SocketDisconnectEvent,
+  event: BackendTransportDisconnectEvent,
 ) {
   const canAddMessage = await waitUntilRuntimeStopsRunning(runtime);
   if (!canAddMessage || queue.size > 0) {
@@ -543,7 +543,7 @@ function createSocketAgent({
   threadId: string;
   initialMessages?: Message[];
 }) {
-  return new SocketAdapterAgent(
+  return new BackendTransportAgent(
     new WebSocketBackendTransport(websocketUrl),
     {
       agentId,
@@ -555,7 +555,7 @@ function createSocketAgent({
 }
 
 function observeDemoAgentLifecycle(
-  agent: SocketAdapterAgent,
+  agent: BackendTransportAgent,
   sourceId: string,
 ) {
   return observeAgUiAgentLifecycle(agent, {

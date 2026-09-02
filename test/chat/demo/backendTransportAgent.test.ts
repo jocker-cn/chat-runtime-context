@@ -4,10 +4,10 @@ import { EventType } from "@ag-ui/client";
 import type { BaseEvent, RunAgentInput } from "@ag-ui/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  SocketAdapterAgent,
-  WebSocketBackendTransport,
-  type SocketDisconnectEvent,
-} from "../../../src/chat/demo/adapters/socketAdapter";
+  BackendTransportAgent,
+  type BackendTransportDisconnectEvent,
+} from "../../../src/chat/demo/adapters/backendTransportAgent";
+import { WebSocketBackendTransport } from "../../../src/chat/demo/adapters/webSocketBackendTransport";
 import { AgUiAgentSource, SingleAgentRuntime } from "../../../src/core";
 
 describe("WebSocketBackendTransport disconnects", () => {
@@ -18,7 +18,7 @@ describe("WebSocketBackendTransport disconnects", () => {
 
   it("sends one cancel per run and retains the Socket for the next run", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
-    const agent = new SocketAdapterAgent(new WebSocketBackendTransport("ws://localhost/test"));
+    const agent = new BackendTransportAgent(new WebSocketBackendTransport("ws://localhost/test"));
     const first = agent.run(runInput("first")).subscribe();
     const socket = FakeWebSocket.instances[0]!;
     socket.emitOpen();
@@ -47,7 +47,7 @@ describe("WebSocketBackendTransport disconnects", () => {
 
   it("discards an unsent run when cancelled before the Socket opens", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
-    const agent = new SocketAdapterAgent(new WebSocketBackendTransport("ws://localhost/test"));
+    const agent = new BackendTransportAgent(new WebSocketBackendTransport("ws://localhost/test"));
     agent.run(runInput("queued")).subscribe();
     const socket = FakeWebSocket.instances[0]!;
 
@@ -65,7 +65,7 @@ describe("WebSocketBackendTransport disconnects", () => {
 
   it.each(["completed", "error"])("does not cancel after a normal %s event", (event) => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
-    const agent = new SocketAdapterAgent(new WebSocketBackendTransport("ws://localhost/test"));
+    const agent = new BackendTransportAgent(new WebSocketBackendTransport("ws://localhost/test"));
     const subscription = agent.run(runInput("finished")).subscribe();
     const socket = FakeWebSocket.instances[0]!;
     socket.emitOpen();
@@ -79,7 +79,7 @@ describe("WebSocketBackendTransport disconnects", () => {
 
   it("does not send cancellation on ordinary subscription teardown", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
-    const agent = new SocketAdapterAgent(new WebSocketBackendTransport("ws://localhost/test"));
+    const agent = new BackendTransportAgent(new WebSocketBackendTransport("ws://localhost/test"));
     const subscription = agent.run(runInput("detached")).subscribe();
     const socket = FakeWebSocket.instances[0]!;
     socket.emitOpen();
@@ -91,7 +91,7 @@ describe("WebSocketBackendTransport disconnects", () => {
   it("stops locally and reports a failed cancellation through the subscription error channel", () => {
     const cancel = vi.fn(() => { throw new Error("cancel send failed"); });
     const disconnect = vi.fn();
-    const agent = new SocketAdapterAgent({ run: () => disconnect, cancel });
+    const agent = new BackendTransportAgent({ run: () => disconnect, cancel });
     const onError = vi.fn();
     const subscription = agent.run(runInput("failed")).subscribe({ error: onError });
 
@@ -107,7 +107,7 @@ describe("WebSocketBackendTransport disconnects", () => {
   it("marks cancellation before notifying the transport to prevent reentrant cancellation", () => {
     const disconnect = vi.fn();
     const cancel = vi.fn(() => agent.abortRun());
-    const agent = new SocketAdapterAgent({ run: () => disconnect, cancel });
+    const agent = new BackendTransportAgent({ run: () => disconnect, cancel });
     const subscription = agent.run(runInput("reentrant")).subscribe();
 
     agent.abortRun();
@@ -119,7 +119,7 @@ describe("WebSocketBackendTransport disconnects", () => {
 
   it("coalesces both Runtime cancellation paths and settles the Agent without a success event", async () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
-    const agent = new SocketAdapterAgent(new WebSocketBackendTransport("ws://localhost/test"));
+    const agent = new BackendTransportAgent(new WebSocketBackendTransport("ws://localhost/test"));
     const onFinished = vi.fn();
     agent.subscribe({ onRunFinishedEvent: onFinished });
     const abort = vi.spyOn(agent, "abortRun");
@@ -164,7 +164,7 @@ describe("WebSocketBackendTransport disconnects", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     const transport = new WebSocketBackendTransport("ws://localhost/test");
     const onError = vi.fn();
-    const onDisconnected = vi.fn<(event: SocketDisconnectEvent) => void>();
+    const onDisconnected = vi.fn<(event: BackendTransportDisconnectEvent) => void>();
     transport.onDisconnected = onDisconnected;
     transport.run({} as RunAgentInput, {
       onMessage: vi.fn(),
@@ -209,7 +209,7 @@ describe("WebSocketBackendTransport disconnects", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     const transport = new WebSocketBackendTransport("ws://localhost/test");
     const onError = vi.fn();
-    const onDisconnected = vi.fn<(event: SocketDisconnectEvent) => void>();
+    const onDisconnected = vi.fn<(event: BackendTransportDisconnectEvent) => void>();
     transport.onDisconnected = onDisconnected;
     transport.run({} as RunAgentInput, {
       onMessage: vi.fn(),
@@ -249,8 +249,8 @@ describe("WebSocketBackendTransport disconnects", () => {
 
   it("forwards disconnects to the optional Agent callback", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
-    const onDisconnected = vi.fn<(event: SocketDisconnectEvent) => void>();
-    const agent = new SocketAdapterAgent(
+    const onDisconnected = vi.fn<(event: BackendTransportDisconnectEvent) => void>();
+    const agent = new BackendTransportAgent(
       new WebSocketBackendTransport("ws://localhost/test"),
       { onDisconnected },
     );
@@ -277,8 +277,8 @@ describe("WebSocketBackendTransport disconnects", () => {
 
   it("does not report an explicit Agent shutdown as a disconnect Error", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
-    const onDisconnected = vi.fn<(event: SocketDisconnectEvent) => void>();
-    const agent = new SocketAdapterAgent(
+    const onDisconnected = vi.fn<(event: BackendTransportDisconnectEvent) => void>();
+    const agent = new BackendTransportAgent(
       new WebSocketBackendTransport("ws://localhost/test"),
       { onDisconnected },
     );
@@ -303,7 +303,7 @@ describe("WebSocketBackendTransport disconnects", () => {
       event: "messages_snapshot";
       messages: Array<{ id: string; role: "assistant"; content: string }>;
     }) => void) | undefined;
-    const agent = new SocketAdapterAgent({
+    const agent = new BackendTransportAgent({
       run: (_input, handlers) => {
         onMessage = handlers.onMessage;
         return () => undefined;

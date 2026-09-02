@@ -4,10 +4,10 @@ import {
 } from "@microsoft/fetch-event-source";
 import type { RunAgentInput } from "@ag-ui/client";
 import {
-  SocketAdapterAgent,
+  BackendTransportAgent,
+  type BackendTransportAgentOptions,
   type BackendTransport,
-  type SocketAdapterAgentOptions,
-} from "./socketAdapter";
+} from "./backendTransportAgent";
 import type { BackendMessage } from "./backendMessage";
 
 type FetchEventSource = (
@@ -135,13 +135,13 @@ export class SseBackendTransport implements BackendTransport {
 }
 
 export type SseAdapterAgentOptions = Omit<
-  SocketAdapterAgentOptions,
+  BackendTransportAgentOptions,
   "onDisconnected"
 > & {
   transport?: SseBackendTransportOptions;
 };
 
-export class SseAdapterAgent extends SocketAdapterAgent {
+export class SseAdapterAgent extends BackendTransportAgent {
   constructor(url: string, options: SseAdapterAgentOptions = {}) {
     const { transport, ...agentOptions } = options;
     super(new SseBackendTransport(url, transport), {

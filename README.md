@@ -23,7 +23,7 @@ pnpm build
 ## Socket 取消约定
 
 调用 `runtime.cancel()` 即可。Runtime/Source 的 AbortSignal 与 cancel 调用链保持不变，
-`SocketAdapterAgent.abortRun()` 对同一次 run 做幂等处理，停止本次订阅但保留 WebSocket 连接。
+`BackendTransportAgent.abortRun()` 对同一次 run 做幂等处理，停止本次订阅但保留 WebSocket 连接。
 默认发给 BE 的消息为：
 
 ```json

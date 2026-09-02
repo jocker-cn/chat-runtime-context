@@ -1,6 +1,7 @@
 import {memo, useEffect, useMemo, useState} from "react";
 import type {Message} from "@ag-ui/client";
-import {SocketAdapterAgent, WebSocketBackendTransport} from "./adapters/socketAdapter";
+import {BackendTransportAgent} from "./adapters/backendTransportAgent";
+import {WebSocketBackendTransport} from "./adapters/webSocketBackendTransport";
 import {
     isThinkingActivityMessage,
     type ThinkingActivityPhase,
@@ -17,7 +18,7 @@ export function AgUiStatusDemoPage() {
     const websocketUrl =
         import.meta.env.VITE_COPILOT_WS_URL ?? "ws://localhost:8080/ws/copilot";
     const agent = useMemo(
-        () => new SocketAdapterAgent(new WebSocketBackendTransport(websocketUrl), {
+        () => new BackendTransportAgent(new WebSocketBackendTransport(websocketUrl), {
             agentId: "ag-ui-status-demo",
             description: "AG-UI status demo",
             threadId: "ag-ui-status-demo",
@@ -77,7 +78,7 @@ export function AgUiStatusDemoPage() {
     );
 }
 
-function useAgentMessages(agent: SocketAdapterAgent) {
+function useAgentMessages(agent: BackendTransportAgent) {
     const [snapshot, setSnapshot] = useState(() => ({
         messages: [...agent.messages],
         isRunning: agent.isRunning,
