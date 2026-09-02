@@ -3,7 +3,7 @@ import {
   BackendTransportAgent,
   type BackendTransportDisconnectEvent,
 } from "./adapters/backendTransportAgent";
-import { SocketAdapterAgent } from "./adapters/socketAdapter";
+import { createAgent } from "./adapters/createAgent";
 import {
   AgUiAgentSource,
   CompareChatRuntime,
@@ -543,11 +543,15 @@ function createSocketAgent({
   threadId: string;
   initialMessages?: Message[];
 }) {
-  return new SocketAdapterAgent(websocketUrl, {
-    agentId,
-    description,
-    threadId,
-    initialMessages,
+  return createAgent({
+    transport: "websocket",
+    url: websocketUrl,
+    options: {
+      agentId,
+      description,
+      threadId,
+      initialMessages,
+    },
   });
 }
 

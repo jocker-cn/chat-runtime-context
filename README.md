@@ -33,3 +33,23 @@ pnpm build
 - 自定义 `BackendTransport` 需要实现 `cancel(input)` 才能通知 BE；不实现时只停止本地订阅。
 - 仅处理已进入 `run()` 的当前运行；不包含初始化阶段的取消追踪或跨 run 的迟到消息过滤。
 - 本地取消不代表 BE 已确认停止。发送失败通过 Agent 的错误通道报告，不自动重试，也不等待 BE 回执。
+
+## Transport Agent 工厂
+
+使用 `createAgent()` 按运行时配置创建 WebSocket 或 SSE Agent：
+
+```ts
+const agent = createAgent({
+  transport: "websocket", // 或 "sse"
+  url: backendUrl,
+  options: {
+    agentId: "default",
+    threadId: "thread-id",
+    transport: {
+      // WebSocket/SSE 对应的 transport options
+    },
+  },
+});
+```
+
+`transport` 是判别字段，TypeScript 会据此约束 `options` 并返回对应的 Adapter Agent。两种实现最终都复用 `BackendTransportAgent` 的运行、取消和消息转换逻辑。
