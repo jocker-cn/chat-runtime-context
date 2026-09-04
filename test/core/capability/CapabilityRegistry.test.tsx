@@ -121,6 +121,42 @@ describe("CapabilityRegistry", () => {
     expect(() => registry.link()).toThrow(CapabilityRegistrationError);
   });
 
+  it("replaces the same sourced declaration during hot reload", () => {
+    const registry = new CapabilityRegistry();
+    const registration = {
+      name: "hot-reload",
+      market: "cn",
+      version: "2.1.0",
+    };
+
+    registry.registerFunction(registration, () => "before", "@method:Demo.run");
+    registry.registerFunction(registration, () => "after", "@method:Demo.run");
+
+    expect(registry.list()).toHaveLength(1);
+    expect(
+      registry.getFunction<() => string>("hot-reload", condition)(),
+    ).toBe("after");
+  });
+
+  it("removes stale registration metadata when a sourced declaration changes", () => {
+    const registry = new CapabilityRegistry();
+    registry.registerFunction(
+      { name: "hot-reload", market: "cn", version: "1.0.0" },
+      () => "v1",
+      "@method:Demo.run",
+    );
+    registry.registerFunction(
+      { name: "hot-reload", market: "cn", version: "2.1.0" },
+      () => "v2",
+      "@method:Demo.run",
+    );
+
+    expect(registry.list()).toHaveLength(1);
+    expect(
+      registry.getFunction<() => string>("hot-reload", condition)(),
+    ).toBe("v2");
+  });
+
   it("detects synchronous function capability cycles", () => {
     const registry = new CapabilityRegistry();
     const a = registry.getFunction<() => void>("a", condition);

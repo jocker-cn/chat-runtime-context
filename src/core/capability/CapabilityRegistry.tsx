@@ -232,13 +232,28 @@ export class CapabilityRegistry {
     source?: string,
   ) {
     const normalized = normalizeRegistration(registration);
-    this.declarations.push({
-      id: this.nextDeclarationId++,
+    const existingIndex = source
+      ? this.declarations.findIndex(
+          (declaration) =>
+            declaration.kind === kind &&
+            declaration.registration.name === normalized.name &&
+            declaration.source === source,
+        )
+      : -1;
+    const existing = this.declarations[existingIndex];
+    const declaration: CapabilityDeclaration<TImplementation> = {
+      id: existing?.id ?? this.nextDeclarationId++,
       kind,
       implementation,
       registration: normalized,
       source,
-    });
+    };
+
+    if (existingIndex >= 0) {
+      this.declarations[existingIndex] = declaration;
+    } else {
+      this.declarations.push(declaration);
+    }
     this.linked = false;
     this.resolutionCache.clear();
   }

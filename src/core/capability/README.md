@@ -4,6 +4,11 @@ The registry separates market/version-specific implementations from consuming
 flows. Registration declarations are collected while modules are imported;
 indexes are linked lazily on first resolution or explicitly with `link()`.
 
+During development, decorator registrations use `kind + name + source` as
+their declaration identity. If HMR evaluates the same declaration again, the
+new implementation replaces the old one. Registrations from different sources
+still participate in normal duplicate validation.
+
 ## Register with decorators
 
 TypeScript decorators cannot target top-level functions. Decorator syntax is
