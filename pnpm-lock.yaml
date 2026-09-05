@@ -32,9 +32,6 @@ importers:
       rxjs:
         specifier: ^7.8.1
         version: 7.8.1
-      semver:
-        specifier: ^7.8.5
-        version: 7.8.5
       use-sync-external-store:
         specifier: ^1.6.0
         version: 1.6.0(react@19.2.7)
@@ -51,9 +48,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.17)
-      '@types/semver':
-        specifier: ^7.8.0
-        version: 7.8.0
       '@types/use-sync-external-store':
         specifier: ^1.5.0
         version: 1.5.0

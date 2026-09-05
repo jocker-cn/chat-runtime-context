@@ -17,7 +17,7 @@ export class CapabilityNotFoundError extends Error {
     condition: CapabilityCondition,
   ) {
     super(
-      `No ${kind} capability "${name}" matched market "${condition.market ?? "*"}" and version "${condition.version}".`,
+      `No ${kind} capability "${name}" matched market "${condition.market ?? "*"}" and version "${condition.version ?? "<fallback only>"}".`,
     );
     this.name = "CapabilityNotFoundError";
   }

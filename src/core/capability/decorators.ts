@@ -1,8 +1,8 @@
 import type { ComponentType } from "react";
-import { CapabilityRegistry } from "./CapabilityRegistry";
 import type {
   CapabilityFunction,
   CapabilityRegistration,
+  CapabilityRegistrar,
 } from "./contracts";
 import { capabilityRegistry } from "./defaultRegistry";
 import { CapabilityRegistrationError } from "./errors";
@@ -10,7 +10,7 @@ import { CapabilityRegistrationError } from "./errors";
 export type FunctionCapabilityDecorator = MethodDecorator;
 export type ComponentCapabilityDecorator = ClassDecorator & MethodDecorator;
 
-export function createCapabilityDecorators(registry: CapabilityRegistry) {
+export function createCapabilityDecorators(registry: CapabilityRegistrar) {
   return {
     RegisterFunction(
       registration: CapabilityRegistration,
@@ -71,7 +71,7 @@ export const RegisterComponent = defaultDecorators.RegisterComponent;
 export function defineFunctionCapability<TFunction extends CapabilityFunction>(
   registration: CapabilityRegistration,
   implementation: TFunction,
-  registry: CapabilityRegistry = capabilityRegistry,
+  registry: CapabilityRegistrar = capabilityRegistry,
 ) {
   return registry.registerFunction(registration, implementation);
 }
@@ -79,7 +79,7 @@ export function defineFunctionCapability<TFunction extends CapabilityFunction>(
 export function defineComponentCapability<TProps>(
   registration: CapabilityRegistration,
   implementation: ComponentType<TProps>,
-  registry: CapabilityRegistry = capabilityRegistry,
+  registry: CapabilityRegistrar = capabilityRegistry,
 ) {
   return registry.registerComponent(registration, implementation);
 }

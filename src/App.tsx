@@ -1,9 +1,12 @@
+import { capabilityDemoRegistry } from "./chat/demo/capabilityDemoRegistry";
+import type { DemoMarket, FeeResult, MarketBannerProps } from "./chat/demo/capabilityDemo.capabilities";
+import "./chat/demo/capabilityDemo.capabilities";
 import { useEffect, useMemo, useState } from "react";
 import {
-  CapabilityRegistry,
+  CapabilityView,
+  useCapabilityRevision,
   ChatRuntimeView,
   SubmissionQueueProvider,
-  createCapabilityDecorators,
   createChatExtensionStore,
   type CapabilityCondition,
   useQueuedSubmissions,
@@ -28,208 +31,6 @@ import type {
 import styles from "./App.module.css";
 import { AgUiStatusDemoPage } from "./chat/demo/AgUiStatusDemoPage";
 import { SseDemoPage } from "./chat/demo/SseDemoPage";
-
-type DemoMarket = "cn" | "sg" | "us";
-
-interface FeeResult {
-  strategy: string;
-  fee: number;
-  chain: string[];
-}
-
-interface CalculationResult {
-  value: number;
-  chain: string[];
-}
-
-interface MarketBannerProps {
-  condition: CapabilityCondition;
-  strategy: string;
-}
-
-const capabilityDemoRegistry = new CapabilityRegistry();
-const {
-  RegisterFunction,
-  RegisterComponent: RegisterDemoComponent,
-} = createCapabilityDecorators(capabilityDemoRegistry);
-
-
-class CapabilityDemoDefinitions {
-
-  @RegisterFunction({
-    name: "base-rate",
-    market: "cn",
-    version: "2.1.0",
-  })
-  static baseRateCnExact(amount: number): CalculationResult {
-    return { value: amount * 0.04, chain: ["base-rate[market-exact]"] };
-  }
-
-  @RegisterFunction({
-    name: "base-rate",
-    market: "cn",
-    versionRange: ">=2 <3",
-  })
-  static baseRateCnV2(amount: number): CalculationResult {
-    return { value: amount * 0.05, chain: ["base-rate[market-range]"] };
-  }
-
-  @RegisterFunction({ name: "base-rate", fallback: true })
-  static baseRateDefault(amount: number): CalculationResult {
-    return { value: amount * 0.07, chain: ["base-rate[global-fallback]"] };
-  }
-
-  @RegisterFunction({
-    name: "market-adjustment",
-    market: "cn",
-    version: "2.1.0",
-  })
-  static adjustmentCnExact(
-    amount: number,
-    condition: CapabilityCondition,
-  ): CalculationResult {
-    return adjustFromBase(amount, condition, 1.1, "market-exact");
-  }
-
-  @RegisterFunction({
-    name: "market-adjustment",
-    market: "cn",
-    versionRange: ">=2 <3",
-  })
-  static adjustmentCnV2(
-    amount: number,
-    condition: CapabilityCondition,
-  ): CalculationResult {
-    return adjustFromBase(amount, condition, 1.2, "market-range");
-  }
-
-  @RegisterFunction({ name: "market-adjustment", fallback: true })
-  static adjustmentDefault(
-    amount: number,
-    condition: CapabilityCondition,
-  ): CalculationResult {
-    return adjustFromBase(amount, condition, 1.3, "global-fallback");
-  }
-
-  @RegisterFunction({
-    name: "calculate-fee2",
-    market: "cn",
-    version: "2.1.0",
-  })
-  static calculateCnExact2(
-    amount: number,
-    condition: CapabilityCondition,
-  ): FeeResult {
-    return calculateFromAdjustment("CN / exact 2.1.0", amount, condition);
-  }
-
-  @RegisterFunction({
-    name: "calculate-fee",
-    market: "cn",
-    version: "2.1.0",
-  })
-  static calculateCnExact(
-    amount: number,
-    condition: CapabilityCondition,
-  ): FeeResult {
-    return calculateFromAdjustment("CN / exact 2.1.0", amount, condition);
-  }
-
-  @RegisterFunction({
-    name: "calculate-fee",
-    market: "cn",
-    versionRange: ">=2 <3",
-  })
-  static calculateCnV2(
-    amount: number,
-    condition: CapabilityCondition,
-  ): FeeResult {
-    return calculateFromAdjustment(
-      "CN / versionRange >=2 <3",
-      amount,
-      condition,
-    );
-  }
-
-  @RegisterFunction({ name: "calculate-fee", fallback: true })
-  static calculateDefault(
-    amount: number,
-    condition: CapabilityCondition,
-  ): FeeResult {
-    return calculateFromAdjustment("global fallback", amount, condition);
-  }
-
-  @RegisterDemoComponent({
-    name: "market-banner",
-    market: "cn",
-    version: "2.1.0",
-  })
-  static CnExactBanner({ condition, strategy }: MarketBannerProps) {
-    return (
-      <div className={styles.capabilityResult}>
-        精确版本组件：{condition.market} / {condition.version} / {strategy}
-      </div>
-    );
-  }
-
-  @RegisterDemoComponent({
-    name: "market-banner",
-    market: "cn",
-    versionRange: ">=2 <3",
-  })
-  static CnV2Banner({ condition, strategy }: MarketBannerProps) {
-    return (
-      <div className={styles.capabilityResult}>
-        V2 范围组件：{condition.market} / {condition.version} / {strategy}
-      </div>
-    );
-  }
-
-  @RegisterDemoComponent({
-    name: "market-banner",
-    fallback: true,
-    market: "*",
-  })
-  DefaultBanner({ condition, strategy }: MarketBannerProps) {
-    return (
-      <div className={styles.capabilityResult}>
-        兜底组件：{condition.market} / {condition.version} / {strategy}
-      </div>
-    );
-  }
-}
-
-void CapabilityDemoDefinitions;
-
-function adjustFromBase(
-  amount: number,
-  condition: CapabilityCondition,
-  multiplier: number,
-  resolution: string,
-): CalculationResult {
-  const baseResult = capabilityDemoRegistry.getFunction<(value: number) => CalculationResult>("base-rate", condition)(amount);
-
-  return {
-    value: baseResult.value * multiplier,
-    chain: [`market-adjustment[${resolution}]`, ...baseResult.chain],
-  };
-}
-
-function calculateFromAdjustment(
-  strategy: string,
-  amount: number,
-  condition: CapabilityCondition,
-): FeeResult {
-  const adjustedResult = capabilityDemoRegistry.getFunction<
-    (value: number, currentCondition: CapabilityCondition) => CalculationResult
-  >("market-adjustment", condition)(amount, condition);
-
-  return {
-    strategy,
-    fee: adjustedResult.value,
-    chain: ["calculate-fee", ...adjustedResult.chain],
-  };
-}
 
 export function App() {
   if (window.location.pathname === "/ag-ui-status-demo") {
@@ -499,14 +300,11 @@ function RuntimeOperationButtons({
 }
 
 function CapabilityRegistryDemo() {
+  useCapabilityRevision(capabilityDemoRegistry);
   const [market, setMarket] = useState<DemoMarket>("cn");
   const [version, setVersion] = useState("2.1.0");
   const [amount, setAmount] = useState(100);
   const condition: CapabilityCondition = { market, version };
-  const MarketBanner = capabilityDemoRegistry.getComponent<MarketBannerProps>(
-    "market-banner",
-    condition,
-  );
   const feeResult = capabilityDemoRegistry.getFunction<
     (value: number, currentCondition: CapabilityCondition) => FeeResult
   >("calculate-fee", condition)(amount, condition);
@@ -530,7 +328,7 @@ function CapabilityRegistryDemo() {
         <p className="eyebrow">Capability Registry</p>
         <h1>Market / Version 选择测试</h1>
         <p className="connection">
-          version 优先于 versionRange，最后使用 fallback
+          精确版本优先；未命中时使用无版本 fallback。
         </p>
       </header>
 
@@ -565,11 +363,11 @@ function CapabilityRegistryDemo() {
       </div>
 
       <div className={styles.capabilityPresets}>
-        <button type="button" onClick={() => setVersion("2.1.0")}>
+        <button type="button" onClick={() => { setMarket("cn"); setVersion("2.1.0"); }}>
           测试精确版本
         </button>
-        <button type="button" onClick={() => setVersion("2.5.0")}>
-          测试版本范围
+        <button type="button" onClick={() => { setMarket("cn"); setVersion("2.5.0"); }}>
+          测试精确版本 2.5.0
         </button>
         <button
           type="button"
@@ -582,7 +380,12 @@ function CapabilityRegistryDemo() {
         </button>
       </div>
 
-      <MarketBanner condition={condition} strategy={feeResult.strategy} />
+      <CapabilityView<MarketBannerProps>
+        registry={capabilityDemoRegistry}
+        name="market-banner"
+        condition={condition}
+        componentProps={{ condition, strategy: feeResult.strategy }}
+      />
 
       <div className={styles.capabilityChain}>
         {feeResult.chain.map((step, index) => (
