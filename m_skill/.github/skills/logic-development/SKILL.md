@@ -27,6 +27,6 @@ Do not add optional chaining, null checks, default values, `String(...)`, `Numbe
 
 Keep validation and conversion reusable at the owner boundary. A fallback used for one field at one call site is normally evidence that the input contract has not been identified correctly.
 
-If code or runtime evidence contradicts the stated contract, stop and report the mismatch rather than hiding it with defensive behavior.
+If evidence contradicts the contract, check existing callers and tests first; ask only if the intended behavior remains unclear. Do not hide the mismatch with a fallback.
 
 Read [references/data-contracts.md](references/data-contracts.md) when choosing a boundary or reviewing a proposed fallback.

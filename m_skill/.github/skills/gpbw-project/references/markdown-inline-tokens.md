@@ -33,7 +33,7 @@ Use this reference for market-owned inline tokens. Ordinary markdown styling bel
 
 ## Validation and diagnosis
 
-- Cover markdown rendering, pipeline resolution, transform registry, the owning market transform, and the ordinary fallback path.
+- Verify only affected layers: markdown rendering, pipeline resolution, transform registry, the owning market transform, or the ordinary fallback path.
 - Works in tests but not runtime: inspect YAML escaping and configuration-pipeline reinitialization.
 - Text assertion differs: inspect the containing paragraph and token wrapper before assuming a standalone text node.
 - Architecture starts spreading: restore the boundary—YAML chooses, registry resolves, markdown Core transports, market code renders.

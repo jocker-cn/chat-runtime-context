@@ -27,5 +27,5 @@ Use this reference for market- and version-specific functions or React component
 ## Validation
 
 - Test with an isolated `CapabilityRegistry`, or clear the shared registry after each test.
-- Cover exact, fallback, range, priority, duplicate, unresolved, and relevant synchronous or render-cycle behavior.
+- Cover only affected cases among exact, fallback, range, priority, duplicate, unresolved, and synchronous or render-cycle behavior.
 - Do not retain resolved implementations outside the lazy proxy or add a second capability mechanism for layout or transport semantics.

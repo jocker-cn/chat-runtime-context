@@ -15,7 +15,8 @@ Separate current facts, likely causes, and optional next moves.
 4. Explain the current behavior before proposing edits when the user is still exploring.
 5. Make the smallest change that tests the direction, validate it, then keep, refine, redirect, or revert.
 
+For PoCs, keep UTs and adjustments limited to core behavior; when integrating into production code, meet the project's test coverage requirements.
+
 Do not lock implementation scope while the failing boundary is unclear. Tighten the plan promptly when the user narrows the request or asks to pause implementation.
 
 Passing tests are evidence, not final proof, when observed runtime behavior contradicts them.
-

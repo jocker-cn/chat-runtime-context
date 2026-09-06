@@ -36,7 +36,7 @@ Keep this file limited to repository-wide facts and constraints that should affe
 
 ## Validation and delivery
 
-- Run the narrowest relevant check after a change, then expand only when the risk or delivery step warrants it.
+- Run the narrowest relevant check after a change. Once it passes, repeat or expand only for changed code, a new failure, or an unresolved risk.
 - Report exact commands and outcomes. State clearly when a broader check was not run or is failing for an unrelated reason.
 - Before a commit, push, or pull request, run affected tests or the closest relevant verification when no direct test exists.
 - If the branch contains exactly one clear ticket such as `GPBWAI-3836`, prefix commit subjects and pull request titles with it. Do not guess an absent or ambiguous ticket.
