@@ -14,6 +14,26 @@ const exact = { name: "price", ...condition };
 afterEach(cleanup);
 
 describe("CapabilityRegistry exact versions", () => {
+  it("treats omitted and blank query markets identically for exact versions and fallback", () => {
+    const registry = new CapabilityRegistry();
+    registry.registerFunction({ name: "price", version: "2.1.0" }, () => "global exact");
+    registry.registerFunction({ name: "price", fallback: true }, () => "global fallback");
+    registry.registerFunction(exact, () => "cn exact");
+    const exactReference = registry.getFunction<() => string>("price", { version: "2.1.0" });
+    const fallbackReference = registry.getFunction<() => string>("price", {});
+    for (const market of [undefined, "", "   "]) {
+      expect(registry.getFunction("price", { market, version: "2.1.0" })).toBe(exactReference);
+      expect(registry.getFunction("price", { market, version: "" })).toBe(fallbackReference);
+      expect(registry.explain("price", "function", { market }).selected?.level).toBe("global-fallback");
+      expect(registry.explain("price", "function", { market, version: "2.1.0" }).selected?.level)
+        .toBe("global-exact");
+    }
+    expect(exactReference()).toBe("global exact");
+    expect(fallbackReference()).toBe("global fallback");
+    expect(registry.getFunction<() => string>("price", { market: " cn ", version: "2.1.0" })())
+      .toBe("cn exact");
+  });
+
   it("uses only fallbacks for omitted and blank query versions", () => {
     const registry = new CapabilityRegistry();
     registry.registerFunction(exact, () => "exact");

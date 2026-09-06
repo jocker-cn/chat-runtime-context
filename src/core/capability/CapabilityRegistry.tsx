@@ -443,9 +443,14 @@ function freezeCondition(condition: CapabilityCondition): NormalizedCapabilityCo
     (typeof rawVersion === "string" && !rawVersion.trim())
     ? undefined
     : exactVersion(rawVersion);
+  const rawMarket = condition.market;
+  const market = rawMarket === undefined ||
+    (typeof rawMarket === "string" && !rawMarket.trim())
+    ? GLOBAL_MARKET
+    : requireText(rawMarket, "market");
   return Object.freeze({
     version,
-    market: condition.market === undefined ? GLOBAL_MARKET : requireText(condition.market, "market"),
+    market,
   });
 }
 

@@ -20,6 +20,12 @@ are not considered. Invalid non-empty versions still fail validation. If no
 fallback exists, lookup throws CapabilityNotFoundError. Registration metadata
 still requires an explicit version or `fallback: true`.
 
+The query's `market` follows the same empty-value convention: omitted, empty,
+or whitespace-only values mean the global market `*`. Non-empty values are
+trimmed. With a version, lookup tries global exact then global fallback; without
+a version it tries global fallback only. Registration metadata still rejects
+empty market strings to catch accidental declarations.
+
 `CapabilityCondition` is the optional query input. `NormalizedCapabilityCondition`
 is the immutable internal snapshot with a resolved market and
 `version: string | undefined`. Copy both definitions together when integrating
