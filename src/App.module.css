@@ -18,6 +18,141 @@
   gap: 10px;
 }
 
+.navigationLayout {
+  min-width: 0;
+  padding-left: 60px;
+  position: relative;
+}
+
+.navigationViewport {
+  max-height: 640px;
+  overflow-y: auto;
+  padding-right: 8px;
+  scrollbar-gutter: stable;
+}
+
+.navigationAnchor {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.navigationRail {
+  align-items: flex-start;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  left: 0;
+  max-height: min(70%, 420px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 6px;
+  position: absolute;
+  scrollbar-width: none;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 52px;
+  z-index: 1;
+}
+
+.navigationRail::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}
+
+.navigationMarker {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  flex: 0 0 auto;
+  height: 12px;
+  padding: 0;
+  position: relative;
+  width: 100%;
+}
+
+.navigationMarker::before {
+  background: #cfd3d6;
+  border-radius: 999px;
+  content: "";
+  height: 3px;
+  left: 0;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  transition: background-color 120ms ease, transform 120ms ease;
+  width: 10px;
+}
+
+.navigationMarker:has(+ .navigationMarker + .navigationMarker + .navigationMarker:is(:hover, :focus-visible))::before,
+.navigationMarker:is(:hover, :focus-visible) + .navigationMarker + .navigationMarker + .navigationMarker::before {
+  transform: translateY(-50%) scaleX(1.4);
+}
+
+.navigationMarker:has(+ .navigationMarker + .navigationMarker:is(:hover, :focus-visible))::before,
+.navigationMarker:is(:hover, :focus-visible) + .navigationMarker + .navigationMarker::before {
+  transform: translateY(-50%) scaleX(2);
+}
+
+.navigationMarker:has(+ .navigationMarker:is(:hover, :focus-visible))::before,
+.navigationMarker:is(:hover, :focus-visible) + .navigationMarker::before {
+  transform: translateY(-50%) scaleX(3);
+}
+
+.navigationMarker:is(:hover, :focus-visible)::before {
+  background: #202124;
+  transform: translateY(-50%) scaleX(4.2);
+}
+
+.navigationMarker:focus-visible {
+  outline: none;
+}
+
+.navigationMarker:focus-visible::before {
+  box-shadow: 0 0 0 2px rgba(32, 33, 36, 0.18);
+}
+
+.navigationTooltip {
+  border: 1px solid #cbd3dc;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 10px 28px rgba(24, 32, 38, 0.16);
+  color: #384858;
+  left: 60px;
+  max-width: min(340px, calc(100% - 40px));
+  padding: 10px 12px;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: max-content;
+  z-index: 3;
+}
+
+.navigationTooltip strong,
+.navigationTooltip div {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+}
+
+.navigationTooltip strong {
+  color: #182026;
+  font-size: 13px;
+  -webkit-line-clamp: 2;
+}
+
+.navigationTooltip div {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 6px;
+  -webkit-line-clamp: 3;
+}
+
 .capabilityDemo {
   grid-column: 1 / -1;
   min-height: auto;

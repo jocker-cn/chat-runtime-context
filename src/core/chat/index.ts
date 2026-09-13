@@ -182,3 +182,5 @@ export type {
   TurnInputRenderer,
   TurnViewProps,
 } from "./view/TurnView";
+
+export * from "./plugins/chat-turn-navigation";
