@@ -8,8 +8,31 @@ export interface DemoMessageAction {
 
 export type DemoMessage = Message & {
   actions?: readonly DemoMessageAction[];
+  referencedMessageId?: string;
   status?: string;
 };
+
+export function getDemoMessageText(message: Message) {
+  const content = message.content;
+
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (part.type === "text") {
+          return part.text;
+        }
+
+        return `[${part.type}]`;
+      })
+      .join("\n");
+  }
+
+  return "";
+}
 
 export type DemoAiErrorMessage = DemoMessage & {
   role: "activity";

@@ -8,6 +8,7 @@ import {
   ChatRuntimeView,
   SubmissionQueueProvider,
   createChatExtensionStore,
+  findChatMessageById,
   type CapabilityCondition,
   useQueuedSubmissions,
   useSubmissionQueue,
@@ -28,6 +29,7 @@ import type {
   DemoMessage,
   DemoSubmission,
 } from "./chat/demo/demoRuntime";
+import { getDemoMessageText } from "./chat/demo/demoMessage";
 import styles from "./App.module.css";
 import { AgUiStatusDemoPage } from "./chat/demo/AgUiStatusDemoPage";
 import { SseDemoPage } from "./chat/demo/SseDemoPage";
@@ -62,12 +64,24 @@ function DemoChats({
   const { compareDemo, singleDemo } = demos;
   const compareRuntime = compareDemo.runtime;
   const singleRuntime = singleDemo.runtime;
+  const [compareReference, setCompareReference] = useState<{
+    messageId: string;
+    text: string;
+  }>();
   const compareExtensions = useMemo<DemoChatExtensions>(
     () =>
       Object.assign(createChatExtensionStore(), {
         retryUserError: compareDemo.retryUserError,
+        resolveMessageById: (messageId: string) =>
+          findChatMessageById(compareRuntime, messageId),
+        chatFromHere: (message: DemoMessage) => {
+          setCompareReference({
+            messageId: message.id,
+            text: getDemoMessageText(message),
+          });
+        },
       }),
-    [compareDemo],
+    [compareDemo, compareRuntime],
   );
   const singleExtensions = useMemo<DemoChatExtensions>(
     () =>
@@ -83,8 +97,12 @@ function DemoChats({
     const trimmed = compareInput.trim();
     if (!trimmed) return;
 
-    compareDemo.queue.enqueue({ text: trimmed });
+    compareDemo.queue.enqueue({
+      text: trimmed,
+      referencedMessageId: compareReference?.messageId,
+    });
     setCompareInput("");
+    setCompareReference(undefined);
   };
 
   const sendSingle = () => {
@@ -104,6 +122,20 @@ function DemoChats({
           <p className="connection">Backend: {websocketUrl}</p>
         </header>
         <div className="composer">
+          {compareReference ? (
+            <div className="composer-reference">
+              <strong>Chat from here</strong>
+              <span title={compareReference.text}>{compareReference.text}</span>
+              <button
+                type="button"
+                aria-label="Remove referenced message"
+                title="Remove referenced message"
+                onClick={() => setCompareReference(undefined)}
+              >
+                ×
+              </button>
+            </div>
+          ) : null}
           <input
             value={compareInput}
             onChange={(event) => setCompareInput(event.target.value)}

@@ -113,6 +113,7 @@ export interface DemoRuntimeController<
 
 export interface DemoSubmission {
   text: string;
+  referencedMessageId?: string;
   data?: Record<string, unknown>;
   attachments?: readonly unknown[];
 }
@@ -325,6 +326,21 @@ export function createDemoRuntimeController<
   const runtimeTarget = createChatRuntimeQueueTarget<DemoSubmission, string>({
     runtime,
     toInput: (item) => item.payload.text,
+    toRunOptions: (item) => {
+      const referencedMessageId = item.payload.referencedMessageId;
+      if (!referencedMessageId) {
+        return undefined;
+      }
+
+      return {
+        inputMessage: {
+          id: `${item.id}:input`,
+          role: "user",
+          content: item.payload.text,
+          referencedMessageId,
+        } as DemoMessage,
+      };
+    },
   });
   const scheduler = createQueueScheduler({
     queue,

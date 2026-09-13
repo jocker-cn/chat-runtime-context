@@ -1,5 +1,4 @@
-import type { Message } from "@ag-ui/client";
-import { useEffect, useId } from "react";
+import { useId, useMemo } from "react";
 import {
   createFrameRenderer,
   useChatExtensions,
@@ -9,6 +8,7 @@ import {
   type MessageRenderContext,
 } from "../../core";
 import {
+  getDemoMessageText,
   isDemoAiErrorMessage,
   type DemoMessage,
 } from "./demoMessage";
@@ -25,6 +25,11 @@ export interface DemoChatExtensions extends ChatExtensionStore {
     message: DemoMessage,
     context: MessageRenderContext,
   ) => void;
+  chatFromHere?: (
+    message: DemoMessage,
+    context: MessageRenderContext,
+  ) => void;
+  resolveMessageById?: (messageId: string) => DemoMessage | undefined;
 }
 
 export const demoRenderer = createFrameRenderer<DemoMessage>({
@@ -53,7 +58,18 @@ function UserMessageCard({
 }: FrameCardProps<DemoMessage>) {
   const contentId = useId();
   const isError = message.status?.trim()?.toLowerCase() === "error";
-  const { retryUserError } = useChatExtensions<DemoChatExtensions>();
+  const { retryUserError, resolveMessageById } = useChatExtensions<DemoChatExtensions>();
+  const referencedMessage = useMemo(() => {
+    console.log(message.id,"1111")
+    if (!message.referencedMessageId || !resolveMessageById) {
+      return undefined;
+    }
+
+    return resolveMessageById(message.referencedMessageId);
+  }, [resolveMessageById, message.referencedMessageId]);
+  const referencedText = referencedMessage
+    ? getDemoMessageText(referencedMessage)
+    : undefined;
 
   return (
     <article
@@ -66,7 +82,15 @@ function UserMessageCard({
       {isError ? (
         <strong className="message-card-error-label">Failed to send</strong>
       ) : null}
-      <div id={contentId}>{messageText(message)}</div>
+      {referencedText ? (
+        <div
+          className="message-card-reference"
+          title={referencedText}
+        >
+          {referencedText}
+        </div>
+      ) : null}
+      <div id={contentId}>{getDemoMessageText(message)}</div>
       {isError && retryUserError ? (
         <div className="message-card-actions">
           <button
@@ -110,11 +134,9 @@ function AssistantMessageCard({
   context,
 }: FrameCardProps<DemoMessage>) {
   const selectBranch = useSelectBranch();
+  const { chatFromHere } = useChatExtensions<DemoChatExtensions>();
   const isSelected = context.isSelectedBranch;
   const contentId = useId();
-  useEffect(() => {
-    console.log({message})
-  }, []);
   return (
     <article
       className="message-card message-card-assistant"
@@ -124,12 +146,20 @@ function AssistantMessageCard({
     >
       <div id={contentId}>
         <MarkdownMessage
-          content={messageText(message)}
+          content={getDemoMessageText(message)}
           actions={message.actions}
         />
       </div>
       <ApiRequestAction />
       <div className="message-card-actions">
+        {chatFromHere ? (
+          <button
+            type="button"
+            onClick={() => chatFromHere(message, context)}
+          >
+            Chat from here
+          </button>
+        ) : null}
         <button
           type="button"
           disabled={isSelected}
@@ -159,7 +189,7 @@ function ReasoningMessageCard({ message }: FrameCardProps<DemoMessage>) {
       aria-describedby={contentId}
     >
       <div id={contentId}>
-        <MarkdownMessage content={messageText(message)} />
+        <MarkdownMessage content={getDemoMessageText(message)} />
       </div>
     </article>
   );
@@ -204,7 +234,7 @@ function ToolMessageCard({ message }: FrameCardProps<DemoMessage>) {
       aria-label="Tool message"
       aria-describedby={contentId}
     >
-      <code id={contentId}>{messageText(message)}</code>
+      <code id={contentId}>{getDemoMessageText(message)}</code>
     </pre>
   );
 }
@@ -220,7 +250,7 @@ function FallbackMessageCard({ message }: FrameCardProps<DemoMessage>) {
       aria-describedby={contentId}
     >
       <strong>{message.role}</strong>
-      <p id={contentId}>{messageText(message)}</p>
+      <p id={contentId}>{getDemoMessageText(message)}</p>
     </article>
   );
 }
@@ -247,26 +277,4 @@ function activityErrorText(message: DemoMessage) {
   }
 
   return "The connection was interrupted.";
-}
-
-function messageText(message: Message) {
-  const content = message.content;
-
-  if (typeof content === "string") {
-    return content;
-  }
-
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (part.type === "text") {
-          return part.text;
-        }
-
-        return `[${part.type}]`;
-      })
-      .join("\n");
-  }
-
-  return "";
 }

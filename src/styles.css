@@ -108,6 +108,43 @@ p {
   color: #9b2c2c;
 }
 
+.composer-reference {
+  align-items: center;
+  border: 1px solid #cbd3dc;
+  border-left: 3px solid #23866f;
+  border-radius: 6px;
+  color: #526475;
+  display: grid;
+  font-size: 13px;
+  gap: 8px;
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.composer-reference strong {
+  color: #12614f;
+  white-space: nowrap;
+}
+
+.composer-reference span,
+.message-card-reference {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer .composer-reference button {
+  border: 0;
+  background: transparent;
+  color: #66788a;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
 .submission-queue {
   border: 1px solid #d7dde4;
   border-radius: 6px;
@@ -189,6 +226,16 @@ p {
   border: 1px solid #d9534f;
   background: #fff0f0;
   color: #7f1d1d;
+}
+
+.message-card-reference {
+  border-left: 2px solid #6b9487;
+  color: #526475;
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+  max-width: 100%;
+  padding-left: 8px;
 }
 
 .message-card-ai-error {
@@ -398,6 +445,7 @@ p {
 
 .message-card-actions {
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
   margin-top: 8px;
 }

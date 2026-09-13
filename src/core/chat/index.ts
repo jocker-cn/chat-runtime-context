@@ -64,6 +64,7 @@ export { clearTransientMessages } from "./operations/transientMessages";
 export type {
   TransientMessageCleanupPolicy,
 } from "./operations/transientMessages";
+export { findChatMessageById } from "./operations/messageLookup";
 export { removeLastTurn } from "./operations/turns";
 
 export {

@@ -169,6 +169,49 @@ describe("DemoRuntimeController error messages", () => {
     await controller.dispose();
   });
 
+  it("carries a referenced Message ID into the Compare User Message", async () => {
+    const sourceA = createControlledSource("source-a");
+    const sourceB = createControlledSource("source-b");
+    const runtime = new CompareChatRuntime<string, DemoMessage>({
+      sources: [
+        { branchId: "branch-a", source: sourceA.source },
+        { branchId: "branch-b", source: sourceB.source },
+      ],
+      createTurnId: () => "referenced-turn",
+      createInputMessage: (input, turnId) => ({
+        id: `${turnId}:input`,
+        role: "user",
+        content: input,
+      }),
+    });
+    const controller = createDemoRuntimeController(runtime);
+
+    controller.queue.enqueue({
+      text: "Continue from this response.",
+      referencedMessageId: "assistant-message-1",
+    });
+
+    await vi.waitFor(() =>
+      expect(sourceA.inputs).toEqual(["Continue from this response."]),
+    );
+    await vi.waitFor(() =>
+      expect(sourceB.inputs).toEqual(["Continue from this response."]),
+    );
+    await vi.waitFor(() => expect(runtime.getSnapshot().status).toBe("idle"));
+
+    const inputMessage = runtime.getSnapshot()
+      .turnsById["referenced-turn"]?.inputMessage;
+    expect(inputMessage).toMatchObject({
+      role: "user",
+      content: "Continue from this response.",
+      referencedMessageId: "assistant-message-1",
+    });
+    expect(sourceA.messageStore.getMessages()[0]).toBe(inputMessage);
+    expect(sourceB.messageStore.getMessages()[0]).toBe(inputMessage);
+
+    await controller.dispose();
+  });
+
   it("creates a Reasoning, Tool and AI Error response for cleanup controls", async () => {
     const controller = createBeSingleRuntime({
       websocketUrl: "ws://localhost:1/demo-error-scenario",
