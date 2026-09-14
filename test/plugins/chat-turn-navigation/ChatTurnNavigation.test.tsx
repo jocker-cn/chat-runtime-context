@@ -1,14 +1,13 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { StrictMode, useRef } from "react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DemoMessage } from "../../../src/chat/demo/demoMessage";
 import {
-  ChatTurnNavigationAnchor,
-  ChatTurnNavigationProvider,
   ChatTurnNavigationRail,
   ChatTurnNavigationStore,
+  useChatTurnNavigation,
 } from "../../../src/core";
 import {
   CompareChatRuntime,
@@ -24,62 +23,47 @@ describe("Chat Turn Navigation", () => {
     await Promise.allSettled(runtimes.splice(0).map((runtime) => runtime.dispose()));
   });
 
-  it("keeps NavigationItem identity stable and ignores stale Anchor cleanup", () => {
+  it("keeps NavigationItem identity stable", () => {
     const store = new ChatTurnNavigationStore();
     store.setItems([{ id: "turn-1", turnId: "turn-1", messageId: "user-1" }]);
     const firstSnapshot = store.getSnapshot();
 
     store.setItems([{ id: "turn-1", turnId: "turn-1", messageId: "user-1" }]);
     expect(store.getSnapshot()).toBe(firstSnapshot);
-
-    const oldElement = document.createElement("div");
-    const nextElement = document.createElement("div");
-    const oldToken = Symbol("old");
-    const nextToken = Symbol("next");
-    store.registerAnchor({
-      turnId: "turn-1",
-      messageId: "user-1",
-      element: oldElement,
-      token: oldToken,
-    });
-    store.registerAnchor({
-      turnId: "turn-1",
-      messageId: "user-1",
-      element: nextElement,
-      token: nextToken,
-    });
-
-    store.unregisterAnchor("turn-1", oldToken);
-    expect(store.getAnchor("turn-1")).toBe(nextElement);
   });
 
-  it("projects one marker per User Turn and scrolls its registered Anchor", async () => {
+  it("projects one marker per User Turn and uses a custom ViewportAdapter", async () => {
     const runtime = createHistoryRuntime();
     runtimes.push(runtime);
     const onUserNavigate = vi.fn();
+    const revealItem = vi.fn();
+    const viewportAdapter = {
+      getScrollElement: () => null,
+      revealItem,
+    };
 
     function Harness() {
-      const viewportRef = useRef<HTMLDivElement>(null);
+      const navigation = useChatTurnNavigation({
+        runtime,
+        viewportAdapter,
+        onUserNavigate,
+        getPreview: ({ inputMessage }) => ({
+          title: String(inputMessage.content),
+          ariaLabel: `Preview of ${String(inputMessage.content)}`,
+        }),
+      });
       return (
-        <ChatTurnNavigationProvider
-          runtime={runtime}
-          scrollContainerRef={viewportRef}
-          onUserNavigate={onUserNavigate}
-          getPreview={({ inputMessage }) => ({
-            title: String(inputMessage.content),
-            ariaLabel: `Preview of ${String(inputMessage.content)}`,
-          })}
-        >
-          <div ref={viewportRef} data-testid="viewport">
-            <ChatTurnNavigationAnchor turnId="turn-1" messageId="user-1">
+        <>
+          <div data-testid="viewport">
+            <article data-turn-id="turn-1">
               First
-            </ChatTurnNavigationAnchor>
-            <ChatTurnNavigationAnchor turnId="turn-2" messageId="user-2">
+            </article>
+            <article data-turn-id="turn-2">
               Second
-            </ChatTurnNavigationAnchor>
+            </article>
           </div>
-          <ChatTurnNavigationRail />
-        </ChatTurnNavigationProvider>
+          <ChatTurnNavigationRail navigation={navigation} />
+        </>
       );
     }
 
@@ -106,26 +90,49 @@ describe("Chat Turn Navigation", () => {
     expect(rail.scrollTop).toBe(24);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
-    const viewport = screen.getByTestId("viewport");
-    const firstAnchor = viewport.querySelector<HTMLElement>(
-      '[data-chat-turn-navigation-anchor="turn-1"]',
-    )!;
-    Object.defineProperty(viewport, "scrollTop", {
-      configurable: true,
-      value: 100,
-      writable: true,
-    });
-    viewport.getBoundingClientRect = () => createRect({ top: 10, height: 300 });
-    firstAnchor.getBoundingClientRect = () => createRect({ top: 210, height: 40 });
-    const scrollTo = vi.fn();
-    viewport.scrollTo = scrollTo;
-
     fireEvent.click(firstMarker);
 
-    expect(scrollTo).toHaveBeenCalledWith({ top: 300, behavior: "smooth" });
+    expect(revealItem).toHaveBeenCalledWith(
+      expect.objectContaining({ turnId: "turn-1", messageId: "user-1" }),
+      { behavior: "smooth", align: "start" },
+    );
     expect(onUserNavigate).toHaveBeenCalledWith(
       expect.objectContaining({ turnId: "turn-1", messageId: "user-1" }),
     );
+  });
+
+  it("uses the Turn DOM as the default scroll target", async () => {
+    const runtime = createHistoryRuntime();
+    runtimes.push(runtime);
+
+    function Harness() {
+      const navigation = useChatTurnNavigation({ runtime });
+      return (
+        <>
+          <article data-turn-id="turn-1">
+            First
+          </article>
+          <ChatTurnNavigationRail navigation={navigation} />
+        </>
+      );
+    }
+
+    const view = render(<Harness />);
+    const turn = view.container.querySelector<HTMLElement>(
+      '[data-turn-id="turn-1"]',
+    )!;
+    const scrollIntoView = vi.fn();
+    turn.scrollIntoView = scrollIntoView;
+
+    fireEvent.click(await view.findByRole("button", {
+      name: "Jump to user message 1",
+    }));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+      inline: "nearest",
+    });
   });
 
   it("previews the first Agent when a Compare Turn has no selected Branch", async () => {
@@ -151,26 +158,25 @@ describe("Chat Turn Navigation", () => {
       .toBeUndefined();
 
     function Harness() {
-      const viewportRef = useRef<HTMLDivElement>(null);
+      const navigation = useChatTurnNavigation({
+        runtime,
+        getPreview: ({ inputMessage, selectedMessages }) => ({
+          title: String(inputMessage.content),
+          body: selectedMessages?.find((message) =>
+            message.role === "assistant"
+          )?.content,
+          ariaLabel: "Turn preview",
+        }),
+      });
       return (
-        <ChatTurnNavigationProvider
-          runtime={runtime}
-          scrollContainerRef={viewportRef}
-          getPreview={({ inputMessage, selectedMessages }) => ({
-            title: String(inputMessage.content),
-            body: selectedMessages?.find((message) =>
-              message.role === "assistant"
-            )?.content,
-            ariaLabel: "Turn preview",
-          })}
-        >
-          <div ref={viewportRef}>
-            <ChatTurnNavigationAnchor turnId="turn-1" messageId="turn-1:input">
+        <>
+          <div>
+            <article data-turn-id="turn-1">
               Question
-            </ChatTurnNavigationAnchor>
+            </article>
           </div>
-          <ChatTurnNavigationRail />
-        </ChatTurnNavigationProvider>
+          <ChatTurnNavigationRail navigation={navigation} />
+        </>
       );
     }
 
@@ -191,6 +197,131 @@ describe("Chat Turn Navigation", () => {
 
     expect(view.getByRole("tooltip").textContent)
       .toContain("Agent B response");
+  });
+
+  it("refreshes a hovered Preview when its Branch settles without following tokens", async () => {
+    const controlled = createControlledPreviewSource("Final response");
+    const runtime = new CompareChatRuntime<string, DemoMessage>({
+      sources: [{ branchId: "agent-a", source: controlled.source }],
+      createTurnId: () => "turn-1",
+      createInputMessage: (content, turnId) => ({
+        id: `${turnId}:input`,
+        role: "user",
+        content,
+      }),
+    });
+    runtimes.push(runtime);
+
+    await runtime.send("Question");
+    await vi.waitFor(() => {
+      expect(runtime.getSnapshot().branchesById["turn-1:agent-a"]?.status)
+        .toBe("running");
+    });
+    controlled.pushPartial("Partial before hover");
+    const branchReader = runtime.getSnapshot()
+      .branchesById["turn-1:agent-a"]!.messageReader;
+    const subscribeReader = vi.spyOn(branchReader, "subscribe");
+    const getPreview = vi.fn(({ inputMessage, selectedMessages }) => ({
+      title: String(inputMessage.content),
+      body: selectedMessages?.find((message: DemoMessage) =>
+        message.role === "assistant"
+      )?.content,
+      ariaLabel: "Turn preview",
+    }));
+
+    function Harness() {
+      const navigation = useChatTurnNavigation({ runtime, getPreview });
+      return (
+        <>
+          <div>
+            <article data-turn-id="turn-1">
+              Question
+            </article>
+          </div>
+          <ChatTurnNavigationRail navigation={navigation} />
+        </>
+      );
+    }
+
+    const view = render(<Harness />);
+    fireEvent.mouseEnter(view.getByRole("button"));
+    expect(view.getByRole("tooltip").textContent).not.toContain("Partial");
+    expect(subscribeReader).not.toHaveBeenCalled();
+    const previewCallsBeforeToken = getPreview.mock.calls.length;
+
+    controlled.pushPartial("Partial response");
+    await Promise.resolve();
+    expect(getPreview).toHaveBeenCalledTimes(previewCallsBeforeToken);
+    expect(view.getByRole("tooltip").textContent).not.toContain("Partial");
+
+    controlled.complete();
+    await vi.waitFor(() => {
+      expect(view.getByRole("tooltip").textContent).toContain("Final response");
+    });
+    expect(subscribeReader).not.toHaveBeenCalled();
+  });
+
+  it("clamps the Preview Tooltip inside its layout", async () => {
+    const runtime = createHistoryRuntime();
+    runtimes.push(runtime);
+
+    function Harness() {
+      const navigation = useChatTurnNavigation({
+        runtime,
+        getPreview: ({ inputMessage }) => ({
+          title: String(inputMessage.content),
+          ariaLabel: "Turn preview",
+        }),
+      });
+      return (
+        <div className="layout">
+          <nav />
+          <div>
+            <article data-turn-id="turn-1">
+                First
+            </article>
+          </div>
+          <ChatTurnNavigationRail
+            navigation={navigation}
+            markerClassName="marker"
+            tooltipClassName="tooltip"
+          />
+        </div>
+      );
+    }
+
+    const view = render(<Harness />);
+    const layout = view.container.querySelector<HTMLElement>(".layout")!;
+    const firstMarker = view.getByRole("button", {
+      name: "Jump to user message 1",
+    });
+    const lastMarker = view.getByRole("button", {
+      name: "Jump to user message 2",
+    });
+    layout.getBoundingClientRect = () => createRect({ top: 0, height: 200 });
+    firstMarker.getBoundingClientRect = () => createRect({ top: 2, height: 12 });
+    lastMarker.getBoundingClientRect = () => createRect({ top: 186, height: 12 });
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.classList.contains("tooltip")) {
+          return createRect({ top: -42, height: 100 });
+        }
+        return originalRect.call(this);
+      });
+
+    fireEvent.mouseEnter(firstMarker);
+
+    await vi.waitFor(() => {
+      expect(view.getByRole("tooltip").style.top).toBe("58px");
+    });
+
+    fireEvent.mouseLeave(firstMarker);
+    fireEvent.mouseEnter(lastMarker);
+    await vi.waitFor(() => {
+      expect(view.getByRole("tooltip").style.top).toBe("142px");
+    });
+    rectSpy.mockRestore();
   });
 });
 
@@ -245,6 +376,45 @@ function createPreviewSource(response: string) {
   };
 
   return { source };
+}
+
+function createControlledPreviewSource(finalResponse: string) {
+  const messageStore = createMessageStore<DemoMessage>();
+  let inputMessage: DemoMessage | undefined;
+  let release: (() => void) | undefined;
+  const completion = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const source: AnswerSource<string, DemoMessage> = {
+    id: "controlled-agent",
+    messageReader: messageStore,
+    async *run(_input, context) {
+      inputMessage = context.inputMessage as DemoMessage;
+      messageStore.appendMessage(inputMessage);
+      yield { type: "branch-started" };
+      await completion;
+      yield { type: "branch-completed" };
+    },
+  };
+  const setResponse = (content: string) => {
+    messageStore.setMessages([
+      ...(inputMessage ? [inputMessage] : []),
+      {
+        id: "controlled-assistant",
+        role: "assistant",
+        content,
+      },
+    ]);
+  };
+
+  return {
+    source,
+    pushPartial: setResponse,
+    complete() {
+      setResponse(finalResponse);
+      release?.();
+    },
+  };
 }
 
 function createRect({ top, height }: { top: number; height: number }) {

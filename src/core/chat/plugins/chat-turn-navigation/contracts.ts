@@ -1,6 +1,7 @@
 import type { Message } from "@ag-ui/client";
-import type { ReactNode, RefObject } from "react";
+import type { ReactNode } from "react";
 import type {
+  ChatBranch,
   ChatRuntime,
   ChatTurn,
 } from "../../contracts/chat-runtime";
@@ -17,15 +18,10 @@ export interface ChatTurnNavigationItem {
   messageId: string;
 }
 
-export interface ChatTurnNavigationTarget {
-  item: ChatTurnNavigationItem;
-  element: HTMLElement | null;
-}
-
 export interface ChatViewportAdapter {
   getScrollElement(): HTMLElement | null;
   revealItem(
-    target: ChatTurnNavigationTarget,
+    item: ChatTurnNavigationItem,
     options: {
       behavior: ScrollBehavior | "instant";
       align: "start" | "center";
@@ -33,18 +29,18 @@ export interface ChatViewportAdapter {
   ): void | Promise<void>;
 }
 
-export interface ChatTurnNavigationProviderProps<
+export interface UseChatTurnNavigationOptions<
+  TInput = unknown,
   TMessage extends Message = Message,
 > {
-  runtime: ChatRuntime<unknown, TMessage>;
-  scrollContainerRef: RefObject<HTMLElement | null>;
+  runtime: ChatRuntime<TInput, TMessage>;
   viewportAdapter?: ChatViewportAdapter;
   includeTurn?: (turn: ChatTurn<TMessage>) => boolean;
   getPreview?: (context: {
     turn: ChatTurn<TMessage>;
     inputMessage: TMessage;
+    selectedBranch?: ChatBranch<TMessage>;
     selectedMessages?: readonly TMessage[];
   }) => ChatTurnNavigationPreview;
   onUserNavigate?: (item: ChatTurnNavigationItem) => void;
-  children: ReactNode;
 }

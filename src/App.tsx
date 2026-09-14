@@ -1,12 +1,11 @@
 import { capabilityDemoRegistry } from "./chat/demo/capabilityDemoRegistry";
 import type { DemoMarket, FeeResult, MarketBannerProps } from "./chat/demo/capabilityDemo.capabilities";
 import "./chat/demo/capabilityDemo.capabilities";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CapabilityView,
-  ChatTurnNavigationAnchor,
-  ChatTurnNavigationProvider,
   ChatTurnNavigationRail,
+  useChatTurnNavigation,
   useCapabilityRevision,
   ChatRuntimeView,
   SubmissionQueueProvider,
@@ -67,7 +66,10 @@ function DemoChats({
   const { compareDemo, singleDemo } = demos;
   const compareRuntime = compareDemo.runtime;
   const singleRuntime = singleDemo.runtime;
-  const compareViewportRef = useRef<HTMLDivElement>(null);
+  const compareNavigation = useChatTurnNavigation({
+    runtime: compareRuntime,
+    getPreview: getDemoNavigationPreview,
+  });
   const [compareReference, setCompareReference] = useState<{
     messageId: string;
     text: string;
@@ -193,37 +195,29 @@ function DemoChats({
         <SubmissionQueueProvider queue={compareDemo.queue}>
           <SubmissionQueuePanel onEdit={setCompareInput} />
         </SubmissionQueueProvider>
-        <ChatTurnNavigationProvider
-          runtime={compareRuntime}
-          scrollContainerRef={compareViewportRef}
-          getPreview={getDemoNavigationPreview}
-        >
-          <div className={styles.navigationLayout}>
-            <ChatTurnNavigationRail
+        <div className={styles.navigationLayout}>
+          <ChatTurnNavigationRail
+              navigation={compareNavigation}
               className={styles.navigationRail}
               markerClassName={styles.navigationMarker}
               tooltipClassName={styles.navigationTooltip}
+          />
+          <div className={styles.navigationViewport}>
+            <ChatRuntimeView
+              runtime={compareRuntime}
+              extensions={compareExtensions}
+              renderer={demoRenderer}
+              renderInput={renderDemoInput}
+              classNames={{
+                root: styles.runtime,
+                branch: styles.branch,
+                slot: styles.frameSlot,
+              }}
+              empty={<p className="empty">Send a message to create a turn.</p>}
+              loadingIndicator={<DemoLoadingIndicator />}
             />
-            <div
-              ref={compareViewportRef}
-              className={styles.navigationViewport}
-            >
-              <ChatRuntimeView
-                runtime={compareRuntime}
-                extensions={compareExtensions}
-                renderer={demoRenderer}
-                renderInput={renderNavigableDemoInput}
-                classNames={{
-                  root: styles.runtime,
-                  branch: styles.branch,
-                  slot: styles.frameSlot,
-                }}
-                empty={<p className="empty">Send a message to create a turn.</p>}
-                loadingIndicator={<DemoLoadingIndicator />}
-              />
-            </div>
           </div>
-        </ChatTurnNavigationProvider>
+        </div>
       </section>
 
       <section className="chat-shell">
@@ -515,18 +509,6 @@ function renderDemoInput(props: FrameCardProps<DemoMessage>) {
   const Card = demoRenderer.getCard(props.message, props.context);
 
   return <Card {...props} />;
-}
-
-function renderNavigableDemoInput(props: FrameCardProps<DemoMessage>) {
-  return (
-    <ChatTurnNavigationAnchor
-      turnId={props.context.turnId}
-      messageId={props.message.id}
-      className={styles.navigationAnchor}
-    >
-      {renderDemoInput(props)}
-    </ChatTurnNavigationAnchor>
-  );
 }
 
 function getDemoNavigationPreview({

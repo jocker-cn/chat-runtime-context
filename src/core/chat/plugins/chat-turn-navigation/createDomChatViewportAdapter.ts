@@ -1,32 +1,23 @@
-import type { RefObject } from "react";
 import type { ChatViewportAdapter } from "./contracts";
 
-export function createDomChatViewportAdapter(
-  scrollContainerRef: RefObject<HTMLElement | null>,
-  topOffset = 0,
-): ChatViewportAdapter {
+export function createDomChatViewportAdapter(): ChatViewportAdapter {
   return {
-    getScrollElement: () => scrollContainerRef.current,
-    revealItem: ({ element }, options) => {
-      const container = scrollContainerRef.current;
-      if (!container || !element) return;
+    getScrollElement: () => null,
+    revealItem: (item, options) => {
+      const element = document.querySelector<HTMLElement>(
+        `[data-turn-id="${escapeAttributeValue(item.turnId)}"]`,
+      );
+      if (!element) return;
 
-      const containerRect = container.getBoundingClientRect();
-      const targetRect = element.getBoundingClientRect();
-      const alignmentOffset =
-        options.align === "center"
-          ? (container.clientHeight - targetRect.height) / 2
-          : topOffset;
-      const top =
-        container.scrollTop +
-        targetRect.top -
-        containerRect.top -
-        alignmentOffset;
-
-      container.scrollTo({
-        top,
+      element.scrollIntoView({
         behavior: options.behavior === "instant" ? "auto" : options.behavior,
+        block: options.align,
+        inline: "nearest",
       });
     },
   };
+}
+
+function escapeAttributeValue(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
 }

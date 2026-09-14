@@ -12,7 +12,7 @@
 
 - Runtime 继续只负责 `Turn / Branch / Message / lifecycle`。
 - 插件从 Runtime 投影出稳定的用户 Turn 导航项。
-- `ChatTurnNavigationAnchor` 只负责登记用户消息对应的 DOM 锚点。
+- 普通 DOM 列表直接复用 `TurnView` 已有的 `data-turn-id` 定位目标。
 - `ChatTurnNavigationRail` 负责导航轨、悬浮预览、点击跳转和拖动浏览。
 - 滚动容器和虚拟列表通过 `ChatViewportAdapter` 接入。
 - 不修改 `BranchMessageHub`、`FrameSlot`、AG-UI 生命周期或现有 accessibility 状态机。
@@ -30,7 +30,6 @@
 flowchart LR
   Runtime["Chat Runtime<br/>Turn / Branch / Message"] --> Projection["Navigation Projection<br/>稳定 NavigationItem"]
   Projection --> Store["Navigation Store"]
-  Anchor["ChatTurnNavigationAnchor<br/>DOM 锚点登记"] --> Store
   Viewport["业务滚动容器"] --> Observer["Visibility Tracker<br/>IntersectionObserver"]
   Observer --> Store
   Store --> Rail["ChatTurnNavigationRail"]
@@ -135,7 +134,7 @@ Codex 使用 `IntersectionObserver`，而不是每次 scroll 都读取全部节�
 - DOM 结构变化时才重新登记 observer target。
 - 不监听 streaming token 引起的 `characterData` 变化。
 
-在我们的实现中，由于有显式的 `ChatTurnNavigationAnchor` registry，第一版甚至不需要依赖全局 `MutationObserver`。
+当前普通 DOM 跳转直接使用 `TurnView` 的 `data-turn-id`；只有 active marker 观察功能需要维护 observer target。
 
 ### 2.5 Click、Hover 与 Scrub
 
@@ -223,8 +222,7 @@ src/plugins/chat-turn-navigation/
   NavigationStore.ts
   createRuntimeNavigationSource.ts
   createDomViewportAdapter.ts
-  ChatTurnNavigationProvider.tsx
-  ChatTurnNavigationAnchor.tsx
+  useChatTurnNavigation.ts
   ChatTurnNavigationRail.tsx
   ChatTurnNavigationTooltip.tsx
   styles.css
@@ -245,7 +243,7 @@ src/plugins/chat-turn-navigation/
 
 ```ts
 import type { Message } from "@ag-ui/client";
-import type { ReactNode, RefObject } from "react";
+import type { ReactNode } from "react";
 import type {
   ChatBranch,
   ChatRuntime,
@@ -268,20 +266,13 @@ export interface ChatTurnNavigationItem {
   id: string;
   turnId: string;
   messageId: string;
-  getLabel(): ReactNode;
-  getPreview(): ChatTurnNavigationPreview;
-}
-
-export interface ChatTurnNavigationTarget {
-  item: ChatTurnNavigationItem;
-  element: HTMLElement | null;
 }
 
 export interface ChatViewportAdapter {
   getScrollElement(): HTMLElement | null;
 
   revealItem(
-    target: ChatTurnNavigationTarget,
+    item: ChatTurnNavigationItem,
     options: {
       behavior: ScrollBehavior | "instant";
       align: "start" | "center";
@@ -289,20 +280,28 @@ export interface ChatViewportAdapter {
   ): void | Promise<void>;
 }
 
-export interface ChatTurnNavigationProviderProps<
+export interface ChatTurnNavigationController {
+  readonly store: ChatTurnNavigationStore;
+  readonly viewportAdapter: ChatViewportAdapter;
+  getPreview(item: ChatTurnNavigationItem): ChatTurnNavigationPreview | undefined;
+  subscribePreview(item: ChatTurnNavigationItem, listener: () => void): () => void;
+  navigate(item: ChatTurnNavigationItem): void;
+}
+
+export interface UseChatTurnNavigationOptions<
+  TInput,
   TMessage extends Message,
 > {
-  runtime: ChatRuntime<unknown, TMessage>;
-  scrollContainerRef: RefObject<HTMLElement | null>;
+  runtime: ChatRuntime<TInput, TMessage>;
   viewportAdapter?: ChatViewportAdapter;
   includeTurn?: (turn: ChatTurn<TMessage>) => boolean;
-  getPreview: (context: {
+  getPreview?: (context: {
     turn: ChatTurn<TMessage>;
     inputMessage: TMessage;
     selectedBranch?: ChatBranch<TMessage>;
     selectedMessages?: readonly TMessage[];
   }) => ChatTurnNavigationPreview;
-  children: ReactNode;
+  onUserNavigate?: (item: ChatTurnNavigationItem) => void;
 }
 ```
 
@@ -314,151 +313,30 @@ Core 不理解业务消息内容，Preview 的文案、图标和 output 类型�
 - 用户负责把 Message 转换为轻量 PreviewModel。
 - 不允许直接把真实 User Card 或 AI Card 作为默认 Preview。
 
-## 6. `ChatTurnNavigationAnchor` 设计
+## 6. DOM 定位与接入
 
-### 6.1 职责
+普通消息列表直接复用 `ChatRuntimeView` 已有的 `article[data-turn-id]`，不再增加 Anchor、Provider 或 Input Renderer Helper。
 
-Anchor 只做三件事：
-
-1. 提供一个真实、可测量的 DOM 节点。
-2. 用稳定 `turnId` 将节点登记到插件 registry。
-3. 卸载时安全地取消登记。
-
-Anchor 不应该：
-
-- 订阅 Runtime。
-- 订阅 Branch `messageReader`。
-- 计算 Preview。
-- 处理 scroll。
-- 注册为 `RuntimeFocusGroup`。
-- 修改 Card key。
-- 参与 AG-UI 生命周期。
-
-### 6.2 建议接口
-
-```ts
-export interface ChatTurnNavigationAnchorProps {
-  turnId: string;
-  messageId?: string;
-  className?: string;
-  children: ReactNode;
-}
-```
-
-第一版建议固定渲染一个 `div`，不要一开始实现复杂的 polymorphic `asChild` API。
-
-原因：
-
-- Anchor 必须拥有一个真实 box，才能被 `IntersectionObserver` 观察。
-- `display: contents` 没有稳定 layout box，不适合作为 observer target。
-- clone child/ref merging 会显著增加 StrictMode 和用户组件 ref 的复杂度。
-
-### 6.3 Registry 数据结构
-
-```ts
-interface AnchorEntry {
-  turnId: string;
-  messageId?: string;
-  element: HTMLElement;
-  token: symbol;
-}
-
-class ChatTurnNavigationRegistry {
-  private readonly anchors = new Map<string, AnchorEntry>();
-
-  register(entry: AnchorEntry): void;
-  unregister(turnId: string, token: symbol): void;
-  get(turnId: string): HTMLElement | null;
-}
-```
-
-`token` 用于处理 React StrictMode 和 ref callback 替换：旧 ref 的 cleanup 不能删除刚刚完成登记的新节点。
-
-### 6.4 建议实现骨架
+默认 Adapter 只在用户点击 marker 时执行一次 DOM 查询并调用 `scrollIntoView()`。虚拟列表、固定头部偏移和严格滚动隔离由业务传入自定义 `viewportAdapter`。
 
 ```tsx
-export function ChatTurnNavigationAnchor({
-  turnId,
-  messageId,
-  className,
-  children,
-}: ChatTurnNavigationAnchorProps) {
-  const registry = useChatTurnNavigationRegistry();
-  const token = useMemo(() => Symbol(turnId), [turnId]);
+const navigation = useChatTurnNavigation({
+  runtime,
+  getPreview: createBusinessPreview,
+});
 
-  const setElement = useCallback<RefCallback<HTMLDivElement>>(
-    (element) => {
-      if (element) {
-        registry.register({
-          turnId,
-          messageId,
-          element,
-          token,
-        });
-        return;
-      }
-
-      registry.unregister(turnId, token);
-    },
-    [messageId, registry, token, turnId],
-  );
-
-  return (
-    <div
-      ref={setElement}
-      className={className}
-      data-chat-turn-navigation-anchor={turnId}
-      data-chat-turn-navigation-message-id={messageId}
-    >
-      {children}
-    </div>
-  );
-}
-```
-
-实现时还应保证：
-
-- 相同 `turnId + element + token` 的重复登记是幂等的。
-- 新 entry 覆盖旧 entry 时，旧 cleanup 不会删除新 entry。
-- `turnId` 变化时，旧 Anchor 被正确注销。
-- Provider dispose 后，不再向已经销毁的 Store 发布通知。
-
-### 6.5 与现有 `renderInput` 的接入
-
-```tsx
-<ChatTurnNavigationProvider
-  runtime={runtime}
-  scrollContainerRef={viewportRef}
-  getPreview={createBusinessPreview}
->
-  <div className="chat-shell">
-    <div ref={viewportRef} className="chat-viewport">
-      <ChatRuntimeView
-        runtime={runtime}
-        renderer={renderer}
-        renderInput={(props) => (
-          <ChatTurnNavigationAnchor
-            turnId={props.context.turnId}
-            messageId={props.message.id}
-          >
-            <UserCard {...props} />
-          </ChatTurnNavigationAnchor>
-        )}
-      />
-    </div>
-
-    <ChatTurnNavigationRail />
+<div className="chat-shell">
+  <div className="chat-viewport">
+    <ChatRuntimeView
+      runtime={runtime}
+      renderer={renderer}
+      renderInput={renderUserCard}
+    />
   </div>
-</ChatTurnNavigationProvider>
+
+  <ChatTurnNavigationRail navigation={navigation} />
+</div>
 ```
-
-可以额外提供一个减少样板代码的 helper：
-
-```ts
-const renderInput = createNavigableInputRenderer(renderUserCard);
-```
-
-但第一版先验证 Anchor 边界，不必过早增加 helper。
 
 ## 7. Navigation Projection
 
@@ -639,15 +517,11 @@ Registry 新增或删除 Anchor 时：
 默认 adapter 可以限定在指定 scroll container 内计算位置：
 
 ```ts
-const containerRect = container.getBoundingClientRect();
-const targetRect = element.getBoundingClientRect();
-const top =
-  container.scrollTop +
-  targetRect.top -
-  containerRect.top -
-  topOffset;
-
-container.scrollTo({ top, behavior: "smooth" });
+element.scrollIntoView({
+  behavior: "smooth",
+  block: "start",
+  inline: "nearest",
+});
 ```
 
 这比无条件调用全局 `element.scrollIntoView()` 更可控，不会意外滚动页面外层容器。
@@ -750,12 +624,12 @@ return () => controller.abort();
 
 1. 所有 marker 共享一次 Runtime topology 订阅。
 2. 最新 AI streaming 不重建历史 NavigationItem。
-3. Anchor 本身不订阅任何消息数据。
+3. 默认 DOM 跳转只在用户点击时查询目标 Turn。
 4. Tooltip 不挂载真实业务 Card。
 5. 只有 hovered/focused Preview 可以临时读取 Branch messages。
 6. 不对整个消息历史做深拷贝。
 7. 不在每个 token 后重新测量所有 Turn。
-8. DOM 变化优先通过显式 Anchor registry 感知。
+8. 不维护额外的 DOM element registry。
 9. 几何测量和 Tooltip 跟随位置按 frame 合并。
 10. stable key 使用 `turnId/messageId`，不使用 offset。
 
@@ -787,8 +661,7 @@ return () => controller.abort();
 ### Phase 1：基础导航
 
 - Navigation contracts。
-- Provider 和独立 Store。
-- `ChatTurnNavigationAnchor` registry。
+- `useChatTurnNavigation` Controller 和独立 Store。
 - Runtime topology projection。
 - 普通 DOM viewport adapter。
 - Rail marker 和点击跳转。
@@ -813,13 +686,6 @@ return () => controller.abort();
 - 超长导航轨的 marker windowing。
 
 ## 16. 回归测试清单
-
-### Anchor
-
-- StrictMode 下重复 mount/unmount 不会误删新 Anchor。
-- 相同 Turn 重复登记幂等。
-- Turn 删除后 registry 不再返回旧 DOM。
-- Anchor 不参与 RuntimeFocusRegistry。
 
 ### Projection
 
@@ -846,9 +712,9 @@ return () => controller.abort();
 
 ### Observer 与生命周期
 
-- Anchor 新增后开始 observe。
-- Anchor 删除后 unobserve。
-- Provider dispose 后 disconnect observer 并取消所有 frame。
+- Turn DOM 新增后开始 observe。
+- Turn DOM 删除后 unobserve。
+- Controller 卸载后 disconnect observer 并取消所有 frame。
 - dispose 后不会继续更新 Store。
 
 ### Accessibility
@@ -877,8 +743,7 @@ return () => controller.abort();
 后续开始开发时，先实现最小闭环：
 
 ```text
-Provider
-  + Anchor Registry
+useChatTurnNavigation Controller
   + Runtime Topology Projection
   + DOM Viewport Adapter
   + Rail Click Navigation

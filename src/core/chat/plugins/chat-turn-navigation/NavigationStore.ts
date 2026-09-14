@@ -1,19 +1,8 @@
 import { ListenerSet } from "../../../internal/ListenerSet";
 import type { ChatTurnNavigationItem } from "./contracts";
 
-export interface ChatTurnNavigationAnchorEntry {
-  turnId: string;
-  messageId?: string;
-  element: HTMLElement;
-  token: symbol;
-}
-
 export class ChatTurnNavigationStore {
   private readonly listeners = new ListenerSet();
-  private readonly anchors = new Map<
-    string,
-    ChatTurnNavigationAnchorEntry
-  >();
   private readonly itemCache = new Map<string, ChatTurnNavigationItem>();
   private items: readonly ChatTurnNavigationItem[] = [];
   private disposed = false;
@@ -53,26 +42,11 @@ export class ChatTurnNavigationStore {
     this.listeners.emit();
   }
 
-  registerAnchor(entry: ChatTurnNavigationAnchorEntry) {
-    if (this.disposed) return;
-    this.anchors.set(entry.turnId, entry);
-  }
-
-  unregisterAnchor(turnId: string, token: symbol) {
-    if (this.anchors.get(turnId)?.token !== token) return;
-    this.anchors.delete(turnId);
-  }
-
-  getAnchor(turnId: string) {
-    return this.anchors.get(turnId)?.element ?? null;
-  }
-
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
     this.items = [];
     this.itemCache.clear();
-    this.anchors.clear();
     this.listeners.clear();
   }
 }

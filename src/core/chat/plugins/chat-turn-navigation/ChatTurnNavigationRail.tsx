@@ -1,15 +1,18 @@
 import {
   useId,
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type FocusEvent as ReactFocusEvent,
   type MouseEvent as ReactMouseEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { useChatTurnNavigationContext } from "./ChatTurnNavigationProvider";
+import type { ChatTurnNavigationController } from "./useChatTurnNavigation";
 
 export interface ChatTurnNavigationRailProps {
+  navigation: ChatTurnNavigationController;
   className?: string;
   markerClassName?: string;
   tooltipClassName?: string;
@@ -17,20 +20,15 @@ export interface ChatTurnNavigationRailProps {
 }
 
 export function ChatTurnNavigationRail({
+  navigation,
   className,
   markerClassName,
   tooltipClassName,
   ariaLabel = "User messages",
 }: ChatTurnNavigationRailProps) {
-  const {
-    store,
-    viewportAdapter,
-    onUserNavigate,
-    getPreview,
-    subscribePreview,
-  } =
-    useChatTurnNavigationContext();
+  const { store, getPreview, subscribePreview } = navigation;
   const tooltipId = useId();
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const [previewState, setPreviewState] = useState<{
     itemId: string;
     top: number;
@@ -53,13 +51,39 @@ export function ChatTurnNavigationRail({
     });
   }, [previewedItem, subscribePreview]);
 
-  if (items.length === 0) {
-    return null;
-  }
-
   const preview = previewedItem && getPreview
     ? getPreview(previewedItem)
     : undefined;
+
+  useLayoutEffect(() => {
+    const tooltip = tooltipRef.current;
+    if (!tooltip || !previewState) return;
+
+    const layout = tooltip.offsetParent ?? tooltip.parentElement;
+    if (!(layout instanceof HTMLElement)) return;
+
+    const layoutHeight = layout.getBoundingClientRect().height;
+    const tooltipHeight = tooltip.getBoundingClientRect().height;
+    if (layoutHeight <= 0 || tooltipHeight <= 0) return;
+
+    const edgePadding = 8;
+    const halfTooltipHeight = tooltipHeight / 2;
+    const minimumTop = halfTooltipHeight + edgePadding;
+    const maximumTop = layoutHeight - halfTooltipHeight - edgePadding;
+    const nextTop = minimumTop <= maximumTop
+      ? Math.min(maximumTop, Math.max(minimumTop, previewState.top))
+      : layoutHeight / 2;
+
+    if (Math.abs(nextTop - previewState.top) > 0.5) {
+      setPreviewState((current) => current
+        ? { ...current, top: nextTop }
+        : current);
+    }
+  }, [preview, previewState]);
+
+  if (items.length === 0) {
+    return null;
+  }
 
   const showPreview = (
     itemId: string,
@@ -122,24 +146,13 @@ export function ChatTurnNavigationRail({
             }}
             onFocus={(event) => showPreview(item.id, event)}
             onBlur={() => setPreviewState(undefined)}
-            onClick={() => {
-              void viewportAdapter.revealItem(
-                {
-                  item,
-                  element: store.getAnchor(item.turnId),
-                },
-                {
-                  behavior: "smooth",
-                  align: "start",
-                },
-              );
-              onUserNavigate?.(item);
-            }}
+            onClick={() => navigation.navigate(item)}
           />
         ))}
       </nav>
       {preview ? (
         <div
+          ref={tooltipRef}
           id={tooltipId}
           className={tooltipClassName}
           role="tooltip"

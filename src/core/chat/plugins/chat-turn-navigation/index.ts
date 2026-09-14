@@ -1,12 +1,9 @@
 export {
-  ChatTurnNavigationProvider,
-} from "./ChatTurnNavigationProvider";
-export {
-  ChatTurnNavigationAnchor,
-} from "./ChatTurnNavigationAnchor";
+  useChatTurnNavigation,
+} from "./useChatTurnNavigation";
 export type {
-  ChatTurnNavigationAnchorProps,
-} from "./ChatTurnNavigationAnchor";
+  ChatTurnNavigationController,
+} from "./useChatTurnNavigation";
 export {
   ChatTurnNavigationRail,
 } from "./ChatTurnNavigationRail";
@@ -16,16 +13,12 @@ export type {
 export {
   ChatTurnNavigationStore,
 } from "./NavigationStore";
-export type {
-  ChatTurnNavigationAnchorEntry,
-} from "./NavigationStore";
 export {
   createDomChatViewportAdapter,
 } from "./createDomChatViewportAdapter";
 export type {
   ChatTurnNavigationItem,
   ChatTurnNavigationPreview,
-  ChatTurnNavigationProviderProps,
-  ChatTurnNavigationTarget,
   ChatViewportAdapter,
+  UseChatTurnNavigationOptions,
 } from "./contracts";
