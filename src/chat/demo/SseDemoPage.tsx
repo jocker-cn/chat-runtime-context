@@ -7,8 +7,7 @@ type RandomSseMessage = {
   sentAt: string;
 };
 
-const SSE_URL =
-  import.meta.env.VITE_SSE_URL ?? "http://localhost:8080/api/sse/random";
+const SSE_URL = import.meta.env.VITE_SSE_URL ?? "/api/sse/random";
 
 export function SseDemoPage() {
   const [messages, setMessages] = useState<RandomSseMessage[]>([]);
