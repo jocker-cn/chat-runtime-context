@@ -213,7 +213,7 @@ registerAddToChat({
 });
 ```
 
-如果调用方的 `referenceStoreFactory` 基于 Runtime KeyValue，实现可以映射到：
+当前仓库没有 `createRuntimeKeyValue()`。已有且最接近的 API 是 `createChatExtensionStore()`，调用方可以用它实现 `referenceStoreFactory`；该 Store 只保存可序列化 references，不保存 DOM 或插件生命周期。逻辑 key 可以映射到：
 
 ```text
 add-to-chat/support-chat/references
@@ -541,7 +541,7 @@ Demo Composer 在输入框上方增加一个空的、产品无关的 extension s
 
 新增业务注册模块，例如 `src/chat/demo/addToChat.register.ts`，并由 `src/main.tsx` side-effect import。React 页面中不新增 Hook 或 effect。
 
-Demo 集成层自行创建 `ContextReferenceStore`。如果选择 Runtime KeyValue，`createRuntimeKeyValueReferenceStore` 应放在业务 adapter/integration 目录，由调用方创建并传入插件，而不是放在 Add to Chat 插件内部。
+Demo 集成层自行创建 `ContextReferenceStore`。当前仓库没有 Runtime KeyValue factory，因此第一版应在业务 adapter/integration 目录增加 `createChatExtensionReferenceStore()`，把调用方创建的 `ChatExtensionStore` 适配成 `ContextReferenceStore`，再传入插件。这个 adapter 不放在 Add to Chat 插件内部。
 
 多个 Demo Runtime 使用不同注册 ID 和 DOM scope；调用方按相同 ID 创建独立 Store scope：
 
