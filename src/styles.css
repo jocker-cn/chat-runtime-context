@@ -76,6 +76,10 @@ p {
   margin-bottom: 18px;
 }
 
+.composer [data-chat-reference-host] {
+  display: contents;
+}
+
 .composer input {
   border: 1px solid #cbd3dc;
   border-radius: 6px;

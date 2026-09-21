@@ -184,3 +184,4 @@ export type {
 } from "./view/TurnView";
 
 export * from "./plugins/chat-turn-navigation";
+export * from "./plugins/add-to-chat";

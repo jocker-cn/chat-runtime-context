@@ -35,6 +35,10 @@ import { getDemoMessageText } from "./chat/demo/demoMessage";
 import styles from "./App.module.css";
 import { AgUiStatusDemoPage } from "./chat/demo/AgUiStatusDemoPage";
 import { SseDemoPage } from "./chat/demo/SseDemoPage";
+import {
+  compareAddToChat,
+  singleAddToChat,
+} from "./chat/demo/addToChat.register";
 
 export function App() {
   if (window.location.pathname === "/ag-ui-status-demo") {
@@ -106,7 +110,9 @@ function DemoChats({
     compareDemo.queue.enqueue({
       text: trimmed,
       referencedMessageId: compareReference?.messageId,
+      contextReferences: compareAddToChat.getReferences(),
     });
+    compareAddToChat.clearReferences();
     setCompareInput("");
     setCompareReference(undefined);
   };
@@ -115,19 +121,28 @@ function DemoChats({
     const trimmed = singleInput.trim();
     if (!trimmed) return;
 
-    singleDemo.queue.enqueue({ text: trimmed });
+    singleDemo.queue.enqueue({
+      text: trimmed,
+      contextReferences: singleAddToChat.getReferences(),
+    });
+    singleAddToChat.clearReferences();
     setSingleInput("");
   };
 
   return (
     <main className="app">
-      <section className="chat-shell">
+      <section
+        id="compare-chat"
+        className="chat-shell"
+        data-chat-thread-id="ab-chat"
+      >
         <header className="chat-header">
           <p className="eyebrow">AG-UI A/B Runtime</p>
           <h1>Two agents, one backend</h1>
           <p className="connection">Backend: {websocketUrl}</p>
         </header>
         <div className="composer">
+          <div data-chat-reference-host />
           {compareReference ? (
             <div className="composer-reference">
               <strong>Chat from here</strong>
@@ -220,13 +235,18 @@ function DemoChats({
         </div>
       </section>
 
-      <section className="chat-shell">
+      <section
+        id="single-chat"
+        className="chat-shell"
+        data-chat-thread-id="single-chat"
+      >
         <header className="chat-header">
           <p className="eyebrow">AG-UI Single Runtime</p>
           <h1>One agent, one branch</h1>
           <p className="connection">Backend: {websocketUrl}</p>
         </header>
         <div className="composer">
+          <div data-chat-reference-host />
           <input
             value={singleInput}
             onChange={(event) => setSingleInput(event.target.value)}

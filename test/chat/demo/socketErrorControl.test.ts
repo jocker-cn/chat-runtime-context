@@ -54,6 +54,48 @@ describe("Socket Error demo control", () => {
 
     await demo.dispose();
   });
+
+  it("sends Add to Chat references through AG-UI context", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const demo = createBeSingleRuntime({ threadId: "reference-thread" });
+    const contextReferences = [{
+      id: "reference-1",
+      type: "text-selection" as const,
+      text: "Selected release risk",
+      source: {
+        type: "chat-frame",
+        turnId: "turn-1",
+        branchId: "agent-single",
+        frameId: "frame-1",
+      },
+    }];
+
+    demo.queue.enqueue({
+      text: "Summarize this",
+      contextReferences,
+    });
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0]!;
+    socket.emitOpen();
+
+    await vi.waitFor(() => expect(socket.sentPayloads).toHaveLength(1));
+    const payload = JSON.parse(socket.sentPayloads[0]!) as {
+      input: {
+        context: Array<{ description: string; value: string }>;
+      };
+    };
+    expect(payload.input.context).toEqual([{
+      description: "addToChatReferences",
+      value: JSON.stringify(contextReferences),
+    }]);
+
+    socket.emitMessage(JSON.stringify({ event: "completed" }));
+    await vi.waitFor(() => expect(demo.runtime.getSnapshot().status).toBe("idle"));
+    const inputMessage = demo.runtime.getSnapshot()
+      .turnsById[demo.runtime.getSnapshot().turnIds.at(-1)!]?.inputMessage;
+    expect(inputMessage?.contextReferences).toEqual(contextReferences);
+    await demo.dispose();
+  });
 });
 
 class FakeWebSocket {
@@ -67,6 +109,7 @@ class FakeWebSocket {
     code: number | undefined;
     reason: string | undefined;
   }> = [];
+  readonly sentPayloads: string[] = [];
   readyState = FakeWebSocket.CONNECTING;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
@@ -79,7 +122,9 @@ class FakeWebSocket {
     FakeWebSocket.instances.push(this);
   }
 
-  send(_payload: string) {}
+  send(payload: string) {
+    this.sentPayloads.push(payload);
+  }
 
   close(code?: number, reason?: string) {
     this.closeCalls.push({ code, reason });
