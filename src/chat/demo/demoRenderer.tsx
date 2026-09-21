@@ -1,5 +1,6 @@
 import { useId, useMemo } from "react";
 import {
+  AddToChat,
   createFrameRenderer,
   useChatExtensions,
   useSelectBranch,
@@ -21,6 +22,7 @@ import {
 import { ApiRequestAction } from "./ApiRequestAction";
 
 export interface DemoChatExtensions extends ChatExtensionStore {
+  addToChat?: (text: string) => void;
   retryUserError?: (
     message: DemoMessage,
     context: MessageRenderContext,
@@ -134,7 +136,7 @@ function AssistantMessageCard({
   context,
 }: FrameCardProps<DemoMessage>) {
   const selectBranch = useSelectBranch();
-  const { chatFromHere } = useChatExtensions<DemoChatExtensions>();
+  const { addToChat, chatFromHere } = useChatExtensions<DemoChatExtensions>();
   const isSelected = context.isSelectedBranch;
   const contentId = useId();
   return (
@@ -144,12 +146,14 @@ function AssistantMessageCard({
       aria-label="AI response"
       aria-describedby={contentId}
     >
-      <div id={contentId}>
-        <MarkdownMessage
-          content={getDemoMessageText(message)}
-          actions={message.actions}
-        />
-      </div>
+      <AddToChat onAdd={(text) => addToChat?.(text)}>
+        <div id={contentId}>
+          <MarkdownMessage
+            content={getDemoMessageText(message)}
+            actions={message.actions}
+          />
+        </div>
+      </AddToChat>
       <ApiRequestAction />
       <div className="message-card-actions">
         {chatFromHere ? (

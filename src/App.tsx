@@ -4,9 +4,11 @@ import "./chat/demo/capabilityDemo.capabilities";
 import { useEffect, useMemo, useState } from "react";
 import {
   CapabilityView,
+  AddToChatSourceList,
   ChatTurnNavigationRail,
   useChatTurnNavigation,
   useCapabilityRevision,
+  useAddToChatSources,
   ChatRuntimeView,
   SubmissionQueueProvider,
   createChatExtensionStore,
@@ -74,10 +76,15 @@ function DemoChats({
     messageId: string;
     text: string;
   }>();
+  const [compareInput, setCompareInput] = useState("帮我总结一下当前发布风险。");
+  const [singleInput, setSingleInput] = useState("帮我总结一下当前发布风险。");
+  const compareChatSources = useAddToChatSources();
+  const singleChatSources = useAddToChatSources();
   const compareExtensions = useMemo<DemoChatExtensions>(
     () =>
       Object.assign(createChatExtensionStore(), {
         retryUserError: compareDemo.retryUserError,
+        addToChat: compareChatSources.addSource,
         resolveMessageById: (messageId: string) =>
           findChatMessageById(compareRuntime, messageId),
         chatFromHere: (message: DemoMessage) => {
@@ -87,18 +94,16 @@ function DemoChats({
           });
         },
       }),
-    [compareDemo, compareRuntime],
+    [compareChatSources.addSource, compareDemo, compareRuntime],
   );
   const singleExtensions = useMemo<DemoChatExtensions>(
     () =>
       Object.assign(createChatExtensionStore(), {
         retryUserError: singleDemo.retryUserError,
+        addToChat: singleChatSources.addSource,
       }),
-    [singleDemo],
+    [singleChatSources.addSource, singleDemo],
   );
-  const [compareInput, setCompareInput] = useState("帮我总结一下当前发布风险。");
-  const [singleInput, setSingleInput] = useState("帮我总结一下当前发布风险。");
-
   const sendCompare = () => {
     const trimmed = compareInput.trim();
     if (!trimmed) return;
@@ -106,17 +111,23 @@ function DemoChats({
     compareDemo.queue.enqueue({
       text: trimmed,
       referencedMessageId: compareReference?.messageId,
+      attachments: compareChatSources.sources,
     });
     setCompareInput("");
     setCompareReference(undefined);
+    compareChatSources.clearSources();
   };
 
   const sendSingle = () => {
     const trimmed = singleInput.trim();
     if (!trimmed) return;
 
-    singleDemo.queue.enqueue({ text: trimmed });
+    singleDemo.queue.enqueue({
+      text: trimmed,
+      attachments: singleChatSources.sources,
+    });
     setSingleInput("");
+    singleChatSources.clearSources();
   };
 
   return (
@@ -142,6 +153,10 @@ function DemoChats({
               </button>
             </div>
           ) : null}
+          <AddToChatSourceList
+            sources={compareChatSources.sources}
+            onRemove={compareChatSources.removeSource}
+          />
           <input
             value={compareInput}
             onChange={(event) => setCompareInput(event.target.value)}
@@ -227,6 +242,10 @@ function DemoChats({
           <p className="connection">Backend: {websocketUrl}</p>
         </header>
         <div className="composer">
+          <AddToChatSourceList
+            sources={singleChatSources.sources}
+            onRemove={singleChatSources.removeSource}
+          />
           <input
             value={singleInput}
             onChange={(event) => setSingleInput(event.target.value)}
