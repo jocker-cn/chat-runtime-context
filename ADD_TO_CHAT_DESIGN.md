@@ -499,3 +499,86 @@ interface WorkbenchRendererHandle {
 12. 未调用 `registerAddToChat()` 时，页面没有该功能及任何相关副作用。
 13. React 页面不渲染 Add to Chat JSX，也不包含 Add to Chat `useEffect()`。
 14. 使用同一注册 `id` 重复执行时不产生重复监听、按钮或引用列表。
+
+## 15. 对当前仓库的具体改动
+
+### 15.1 新增插件实现
+
+新增 `src/core/chat/plugins/add-to-chat/`，包含：
+
+- 公共 selection/reference/registration contracts。
+- 只保存瞬时 selection 的 `AddToChatViewStore`。
+- 按注册 ID 使用 Runtime KeyValue 的 `ContextReferenceStore` adapter。
+- 支持同 ID 原子替换和销毁的 `registerAddToChat()`。
+- DOM selection adapter、浮动 Action、Reference List、Portal 和样式。
+- `index.ts` 公共导出。
+
+新增通用 Chat View Plugin Registry/Host。它属于插件基础设施，不写入 `ChatRuntimeSnapshot`；负责 registration activate/dispose、等待 DOM target、重挂载和 HMR 替换。
+
+### 15.2 当前 Runtime View 不改结构
+
+以下现有 DOM 已满足 selection source 解析：
+
+- `ChatRuntimeView` 的 `.crt-runtime`。
+- `TurnView` 的 `data-turn-id`。
+- `BranchView` 的 `data-branch-id`。
+- `FrameListItem` 的 `data-frame-id`。
+
+因此不新增 Selection Boundary，不包裹 Message Card，不修改 Renderer API。第一阶段 reference source 使用 frame/turn/branch ID；如果以后必须精确到一条 message，再单独设计无 wrapper 的 message identity contract。
+
+### 15.3 Composer 增加通用插槽
+
+Demo Composer 在输入框上方增加一个空的、产品无关的 extension slot：
+
+```tsx
+<div data-chat-reference-host />
+```
+
+它只作为 Portal target，不 import Add to Chat，也不持有 references 状态。现有手写的单条 `compareReference` UI 删除，改由插件渲染多条 reference。
+
+### 15.4 应用启动注册一次
+
+新增业务注册模块，例如 `src/chat/demo/addToChat.register.ts`，并由 `src/main.tsx` side-effect import。React 页面中不新增 Hook 或 effect。
+
+多个 Demo Runtime 使用不同注册 ID 和 DOM scope，共用 Runtime KeyValue：
+
+```text
+compare-chat -> add-to-chat/compare-chat/references
+single-chat  -> add-to-chat/single-chat/references
+```
+
+### 15.5 Submission 改为多引用
+
+Demo 的 `DemoSubmission` 将单值 `referencedMessageId?: string` 升级为：
+
+```ts
+contextReferences?: readonly ContextReference[];
+```
+
+Composer 发送时读取当前注册 ID 的不可变快照。Runtime queue target 和 Agent adapter 必须继续传递该数组；成功入队后清空当前 ID，失败时保留。
+
+如果旧的 Chat from here 仍需兼容，可在业务 adapter 中把旧字段投影成一个 `ContextReference`，不把兼容逻辑放入 Runtime Core。
+
+### 15.6 公共导出与测试
+
+从 `src/core/chat/index.ts` 导出 Add to Chat contracts 和 registration API。
+
+新增测试覆盖：
+
+- 同 ID 重复注册不会重复挂载。
+- 不同 ID 的 Runtime KeyValue 数据隔离。
+- 多次 Add 追加而非覆盖。
+- 选区只能来自对应 `.crt-runtime`。
+- Portal 渲染到对应 Composer slot。
+- 删除单项及发送成功清空。
+- DOM 重挂载后重新绑定。
+- Registry dispose 后没有 listener、observer、Portal 或 subscription 泄漏。
+
+### 15.7 明确不修改
+
+以下模块不需要为该功能增加业务逻辑：
+
+- `BaseChatRuntime`、`SingleAgentRuntime`、`CompareChatRuntime`。
+- `BranchMessageHub`、`RuntimeFocusController`。
+- Message Renderer 和 Markdown Renderer。
+- `ChatRuntimeSnapshot`、Turn、Branch 和 Message contracts。
