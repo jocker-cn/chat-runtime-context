@@ -13,7 +13,7 @@ Add to Chat 应实现为独立的可选 View 插件，不进入 Chat Runtime Cor
 - Runtime 继续只负责 `Turn / Branch / Message / lifecycle`。
 - 插件负责当前 selection、已添加 reference、浮动操作和引用列表。
 - 宿主决定 reference 如何进入 Submission，以及何时清空。
-- 宿主按需调用一次 `mountAddToChat()`；插件通过 DOM Adapter 观察现有聊天区域，不包裹 Runtime 或消息内容。
+- 应用启动时调用一次 `registerAddToChat()`；插件宿主通过 DOM Adapter 观察现有聊天区域，不包裹 Runtime 或消息内容。
 - 远程 Renderer、Web Component 和 Worker 通过统一 selection/reference 协议接入，不依赖 React 组件。
 - 插件不直接调用 Agent、不操作 Message Queue、不修改输入框文本。
 
@@ -50,11 +50,9 @@ flowchart LR
 ```text
 src/core/chat/plugins/add-to-chat/
   contracts.ts
-  AddToChatStore.ts
+  AddToChatViewStore.ts
   createAddToChatController.ts
-  mountAddToChat.ts
-  useAddToChat.ts
-  AddToChatPlugin.tsx
+  registerAddToChat.ts
   AddToChatAction.tsx
   AddToChatReferenceList.tsx
   createDomSelectionAdapter.ts
@@ -125,32 +123,34 @@ export interface ContextReferenceSource {
 
 ## 5. Store 与 Controller
 
-参照 `ChatTurnNavigationStore`，Add to Chat 使用独立外部 Store：
+选区属于插件内部的瞬时 View 状态；已添加 references 由宿主 Store 提供。两者不混在一起：
 
 ```ts
-export interface AddToChatSnapshot {
+export interface AddToChatViewSnapshot {
   readonly selection?: AddToChatSelection;
-  readonly references: readonly ContextReference[];
 }
 
-export class AddToChatStore {
+export class AddToChatViewStore {
   subscribe(listener: () => void): () => void;
-  getSnapshot(): AddToChatSnapshot;
+  getSnapshot(): AddToChatViewSnapshot;
 
   setSelection(selection?: AddToChatSelection): void;
-  addSelection(): ContextReference | undefined;
-  removeReference(id: string): void;
-  clearReferences(): void;
   reset(): void;
+}
+
+export interface ContextReferenceStore {
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): readonly ContextReference[];
+  add(reference: ContextReference): void;
+  remove(id: string): void;
+  clear(): void;
 }
 ```
 
-Controller 使用框架无关的工厂创建；React Hook 只是可选适配器：
+Controller 由注册函数内部创建，不向业务 React 组件暴露生命周期：
 
 ```ts
 export interface AddToChatController {
-  readonly store: AddToChatStore;
-
   setSelection(selection?: AddToChatSelection): void;
   addSelection(): void;
   removeReference(id: string): void;
@@ -158,31 +158,61 @@ export interface AddToChatController {
   getReferences(): readonly ContextReference[];
 }
 
-export function createAddToChatController(): AddToChatController;
-export function useAddToChat(): AddToChatController;
+export function createAddToChatController(options: {
+  references: ContextReferenceStore;
+}): AddToChatController;
 ```
 
 一个 Composer/Runtime 实例对应一个 Controller。不要使用进程级或模块级全局 Store，以免多个聊天窗口串数据。
 
 ## 6. View 插件
 
-### 6.1 主入口：`mountAddToChat()`
+### 6.1 主入口：`registerAddToChat()`
 
-主入口不依赖 React，也不要求修改 JSX：
+主入口不依赖 React，也不要求修改 JSX。应用入口注册一次即可：
 
 ```ts
-const addToChat = mountAddToChat({
-  adapter: selectionAdapter,
-});
+import { registerAddToChat } from "@chat-runtime/add-to-chat";
+import { chatPluginRegistry } from "./chatPluginRegistry";
 
-addToChat.getReferences();
-addToChat.clearReferences();
-addToChat.dispose();
+registerAddToChat({
+  registry: chatPluginRegistry,
+  id: "main-chat-add-to-chat",
+  selectionRoot: ".crt-runtime",
+  referenceHost: "[data-chat-reference-host]",
+  references: referencesStore,
+  resolveSource: ({ startElement }) => ({
+    type: "chat-message",
+    messageId: startElement
+      .closest("[data-message-id]")
+      ?.getAttribute("data-message-id") ?? undefined,
+  }),
+});
 ```
 
-`mountAddToChat()` 在调用时才创建 Controller、注册事件并挂载两个 Portal。返回值同时提供 references 操作和 `dispose()`。只 import 模块不会产生副作用；不 import、不调用时，功能完全不存在。
+`referencesStore` 是宿主提供的数据接口，既可以使用普通外部 Store，也可以适配 Runtime KeyValue。注册 API 只消费 `getSnapshot / subscribe / add / remove / clear`，不规定数据存在哪里。
 
-对于希望使用 JSX 的宿主，可以额外导出轻量的 `<AddToChatPlugin adapter={...} />`。它不接收 `children`，内部只调用 `mountAddToChat()` 和 `dispose()`，始终是可选的便利层。
+注册之后，插件宿主负责：
+
+- 等待 `selectionRoot` 和 `referenceHost` 出现在 DOM 中。
+- Runtime 或 Composer 重挂载后重新绑定。
+- 创建和销毁 Controller、监听器及 Portal。
+- 同一个 `id` 再次注册时原子替换旧配置，支持 HMR。
+- Registry、应用或动态插件销毁时自动清理。
+
+业务页面不调用 `mount()`、`dispose()` 或 `useEffect()`。只 import 模块不会产生副作用；不调用 `registerAddToChat()` 时功能完全不存在。
+
+如果希望做到纯副作用 import，可以由业务项目建立自己的注册模块：
+
+```ts
+// features/add-to-chat.register.ts
+registerAddToChat({ /* application config */ });
+
+// application bootstrap
+import "./features/add-to-chat.register";
+```
+
+库本身不能在 import 时自动注册，因为它不知道当前应用的聊天根节点、Composer 插槽和数据源映射。
 
 ### 6.2 DOM Selection Adapter
 
@@ -237,46 +267,36 @@ Adapter 不改变这些 DOM 节点的层级，也不持有 Runtime 内部对象�
 
 ## 7. 宿主接入
 
-```ts
-function ChatShell() {
-  // 这两个节点由宿主现有布局提供，不为 Add to Chat 新建包裹层。
-  const chatViewport = getExistingChatViewport();
-  const composerReferenceSlot = getExistingComposerReferenceSlot();
+```tsx
+// ChatPage.tsx：没有 Add to Chat import、组件或 effect。
+export function ChatPage() {
+  return (
+    <ChatLayout>
+      <ChatRuntimeView runtime={runtime} renderer={renderer} />
 
-  const addToChat = mountAddToChat({
-    adapter: createDomSelectionAdapter({
-      getSelectionRoot: () => chatViewport,
-      getReferenceHost: () => composerReferenceSlot,
-      resolveSource: ({ startElement }) => {
-        const frame = startElement.closest("[data-frame-id]");
-
-        return {
-          type: "chat-message",
-          targetId: frame?.getAttribute("data-frame-id") ?? undefined,
-          turnId: frame?.getAttribute("data-turn-id") ?? undefined,
-        };
-      },
-    }),
-  });
-
-  const send = async () => {
-    const references = addToChat.getReferences();
-
-    await enqueue({
-      text: input,
-      contextReferences: references,
-    });
-
-    addToChat.clearReferences();
-  };
-
-  return { send, dispose: () => addToChat.dispose() };
+      <Composer>
+        <div data-chat-reference-host />
+        <ComposerInput />
+      </Composer>
+    </ChatLayout>
+  );
 }
 ```
 
-`ChatRuntimeView`、Message Renderer 和 Composer 的原有渲染代码无需出现 Add to Chat。宿主只需暴露已经存在的聊天滚动容器和 Composer 引用插槽。如果现有 Composer 没有引用插槽，应由 Composer 提供通用 extension slot，而不是让 Add to Chat 包裹 Composer。
+`ChatRuntimeView` 已经提供 `.crt-runtime` 根节点。Composer 只需提供一个通用 extension slot；它不 import Add to Chat，也不被 Add to Chat 包裹。注册函数通过 selector 或 Adapter 找到这些现有节点。
 
-React 宿主可以在自己的 `useEffect` 中调用 `mountAddToChat()` 并在 cleanup 中执行 `dispose()`；这仍不会在 React 内容树里增加一层组件。
+发送链路通过独立的 references 数据接口读取快照：
+
+```ts
+const references = referencesStore.getSnapshot();
+
+await enqueue({
+  text: input,
+  contextReferences: references,
+});
+
+referencesStore.clear();
+```
 
 清理策略由宿主决定：
 
@@ -369,10 +389,10 @@ interface WorkbenchRendererHandle {
 | Chat Turn Navigation | Add to Chat |
 | --- | --- |
 | Runtime 投影 NavigationItem | Renderer 投影 ContextReference |
-| NavigationStore | AddToChatStore |
-| `useChatTurnNavigation()` | `useAddToChat()` |
+| NavigationStore | AddToChatViewStore + 宿主 ContextReferenceStore |
+| `useChatTurnNavigation()` | `registerAddToChat()` |
 | `ChatViewportAdapter` | `AddToChatSelectionAdapter` |
-| `ChatTurnNavigationRail` | `mountAddToChat()` / 可选 `AddToChatPlugin` |
+| `ChatTurnNavigationRail` | Registry 托管的 Add to Chat View |
 | Runtime 不处理滚动 | Runtime 不处理 selection/context draft |
 | 业务提供 Preview | 业务提供 Reference source/metadata |
 
@@ -414,11 +434,11 @@ interface WorkbenchRendererHandle {
 第一版实现：
 
 - `ContextReference` 和 Selection contracts。
-- `AddToChatStore`。
-- `useAddToChat()` Controller。
+- `AddToChatViewStore` 和 `ContextReferenceStore` 接口。
+- 内部 `AddToChatController`。
 - DOM Selection Adapter。
-- 框架无关、挂载一次的 `mountAddToChat()`。
-- 可选的 React `AddToChatPlugin` 便利适配器。
+- 框架无关、应用启动时调用一次的 `registerAddToChat()`。
+- Capability Registry 托管的替换与销毁生命周期。
 - 通过 Portal 渲染的单例浮动 Action 和 Composer Reference List。
 - 多引用追加和独立删除。
 - 宿主 Submission reference 快照。
@@ -447,5 +467,6 @@ interface WorkbenchRendererHandle {
 9. 第三方 Renderer 可以只通过 selection 协议接入，不依赖 React。
 10. 插件销毁后不存在 document listener、Portal 或 Store subscription 泄漏。
 11. 插件不作为 `ChatRuntimeView`、消息内容或 Composer 的父组件，不改变现有内容树层级。
-12. 未 import 或未调用 `mountAddToChat()` 时，页面没有该功能及任何相关副作用。
-13. React 宿主可以不渲染任何 Add to Chat JSX，仅通过现有 DOM 节点完成接入。
+12. 未调用 `registerAddToChat()` 时，页面没有该功能及任何相关副作用。
+13. React 页面不渲染 Add to Chat JSX，也不包含 Add to Chat `useEffect()`。
+14. 使用同一注册 `id` 重复执行时不产生重复监听、按钮或引用列表。
