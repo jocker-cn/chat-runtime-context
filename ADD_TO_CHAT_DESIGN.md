@@ -311,7 +311,7 @@ import { mainChatAddToChat } from "./addToChat.register";
 
 const contextReferences = mainChatAddToChat.getReferences();
 
-await enqueue({
+queue.enqueue({
   text: input,
   contextReferences,
 });
@@ -330,18 +330,38 @@ Submission 必须复制 reference 快照。入队之后继续修改 Store，不�
 
 ## 8. Agent Adapter 边界
 
-插件不规定 DeepSeek 或其他 Agent 的请求格式。业务 Adapter 显式投影：
+插件不规定 DeepSeek 或其他 Agent 的请求格式。当前项目使用 AG-UI，`RunAgentParameters.context` 已经提供标准的 `{ description, value }[]` 通道，因此 Queue target 应把整组 references 投影为一个 context entry：
 
 ```ts
-function toAgentInput(submission: ChatSubmission): AgentInput {
+interface DemoRuntimeInput {
+  message: DemoMessage;
+  parameters?: RunAgentParameters;
+}
+
+function toRuntimeInput(
+  item: QueueItem<DemoSubmission>,
+): DemoRuntimeInput {
   return {
-    message: submission.text,
-    context: {
-      references: submission.contextReferences,
+    message: {
+      id: `${item.id}:input`,
+      role: "user",
+      content: item.payload.text,
+    },
+    parameters: {
+      context: [{
+        description: "addToChatReferences",
+        value: JSON.stringify(
+          item.payload.contextReferences ?? [],
+        ),
+      }],
     },
   };
 }
 ```
+
+相应地，BE Demo 的 Runtime input 类型从 `string` 调整为 `DemoRuntimeInput`，`createInputMessage` 返回 `input.message`，`DemoAgUiAgentSource` 使用同一 input 类型。`createChatRuntimeQueueTarget.toInput` 调用 `toRuntimeInput(item)`；Runtime Core、Queue Core 和 transport 不增加 Add to Chat 语义。
+
+当前 WebSocket transport 会发送包含完整 `input` 的 `{ event: "run", input }`，SSE transport 会序列化完整 `RunAgentInput`。后端 `AgUiRunMapper` 已经解析 `input.context`，把 `addToChatReferences` JSON value 合并到 `ChatStreamRequest.context`；`DeepSeekStreamingChatService` 已经把非空 context 写入 system message。因此这条路径无需修改自定义 WebSocket/SSE wire protocol。
 
 必须增加端到端验证，确认 reference 没有在以下任何一层被丢弃：
 
