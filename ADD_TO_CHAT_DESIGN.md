@@ -13,7 +13,7 @@ Add to Chat 应实现为独立的可选 View 插件，不进入 Chat Runtime Cor
 - Runtime 继续只负责 `Turn / Branch / Message / lifecycle`。
 - 插件负责当前 selection、已添加 reference、浮动操作和引用列表。
 - 宿主决定 reference 如何进入 Submission，以及何时清空。
-- 本地 React Renderer 可以使用插件提供的 Selection Boundary。
+- 宿主按需调用一次 `mountAddToChat()`；插件通过 DOM Adapter 观察现有聊天区域，不包裹 Runtime 或消息内容。
 - 远程 Renderer、Web Component 和 Worker 通过统一 selection/reference 协议接入，不依赖 React 组件。
 - 插件不直接调用 Agent、不操作 Message Queue、不修改输入框文本。
 
@@ -51,11 +51,13 @@ flowchart LR
 src/core/chat/plugins/add-to-chat/
   contracts.ts
   AddToChatStore.ts
+  createAddToChatController.ts
+  mountAddToChat.ts
   useAddToChat.ts
-  AddToChatSelectionBoundary.tsx
+  AddToChatPlugin.tsx
   AddToChatAction.tsx
   AddToChatReferenceList.tsx
-  createHostSelectionProvider.ts
+  createDomSelectionAdapter.ts
   styles.css
   index.ts
 ```
@@ -143,7 +145,7 @@ export class AddToChatStore {
 }
 ```
 
-React Hook 只负责创建并保持 Controller 生命周期：
+Controller 使用框架无关的工厂创建；React Hook 只是可选适配器：
 
 ```ts
 export interface AddToChatController {
@@ -156,65 +158,75 @@ export interface AddToChatController {
   getReferences(): readonly ContextReference[];
 }
 
+export function createAddToChatController(): AddToChatController;
 export function useAddToChat(): AddToChatController;
 ```
 
 一个 Composer/Runtime 实例对应一个 Controller。不要使用进程级或模块级全局 Store，以免多个聊天窗口串数据。
 
-## 6. View 组件
+## 6. View 插件
 
-### 6.1 Selection Boundary
+### 6.1 主入口：`mountAddToChat()`
 
-本地 React Renderer 可以显式声明可选择区域及来源：
+主入口不依赖 React，也不要求修改 JSX：
 
-```tsx
-<AddToChatSelectionBoundary
-  controller={addToChat}
-  source={{
-    type: "chat-message",
-    messageId: message.id,
-    turnId: context.turnId,
-    branchId: context.branchId,
-  }}
->
-  <MarkdownMessage content={content} />
-</AddToChatSelectionBoundary>
+```ts
+const addToChat = mountAddToChat({
+  adapter: selectionAdapter,
+});
+
+addToChat.getReferences();
+addToChat.clearReferences();
+addToChat.dispose();
 ```
 
-Boundary 的职责仅包括：
+`mountAddToChat()` 在调用时才创建 Controller、注册事件并挂载两个 Portal。返回值同时提供 references 操作和 `dispose()`。只 import 模块不会产生副作用；不 import、不调用时，功能完全不存在。
 
-- 读取自身区域内的浏览器文本选区。
-- 转换成 `AddToChatSelection`。
-- 把瞬时 selection 交给 Controller。
-- 选区清空或 Boundary 卸载时撤销自己的 selection。
+对于希望使用 JSX 的宿主，可以额外导出轻量的 `<AddToChatPlugin adapter={...} />`。它不接收 `children`，内部只调用 `mountAddToChat()` 和 `dispose()`，始终是可选的便利层。
 
-Boundary 不渲染浮动按钮、不保存已添加引用、不访问 Composer。
+### 6.2 DOM Selection Adapter
 
-### 6.2 浮动 Action
+Adapter 接收现有 DOM 节点，不要求业务 Renderer 使用任何 Add to Chat React 组件：
 
-宿主只挂载一个共享 Action：
-
-```tsx
-<AddToChatAction controller={addToChat} />
+```ts
+export interface AddToChatSelectionAdapter {
+  getSelectionRoot(): HTMLElement | null;
+  getReferenceHost(): HTMLElement | null;
+  getOverlayHost?(): HTMLElement | null;
+  resolveSource(context: {
+    range: Range;
+    startElement: Element;
+    endElement: Element;
+  }): ContextReferenceSource | null;
+}
 ```
 
-它订阅 Store 中当前 selection：
+默认实现由 `createDomSelectionAdapter()` 提供。插件在 `selectionRoot` 上使用事件委托，读取浏览器 Selection，并且只接受起点和终点都位于该 root 内的选区。来源可通过现有的 `data-message-id`、`data-turn-id`、`data-branch-id` 等稳定属性解析，也可完全由业务传入 `resolveSource`。
+
+Adapter 的职责包括：
+
+- 限定插件可读取的 DOM 范围。
+- 把现有 DOM 映射为公共 `ContextReferenceSource`。
+- 提供现有的引用列表挂载点和可选浮层挂载点。
+- 销毁时移除 selection、pointer、keyboard 和 resize/scroll 监听。
+
+Adapter 不改变这些 DOM 节点的层级，也不持有 Runtime 内部对象。
+
+### 6.3 浮动 Action
+
+插件实例只创建一个共享 Action。它订阅当前 selection：
 
 - 没有 selection 时不渲染。
 - 使用 selection anchor 定位。
 - 点击时调用 `controller.addSelection()`。
-- 通过 Portal 挂载到宿主 overlay root。
+- 通过 Portal 挂载到 overlay host；未提供时挂载到 `document.body`。
 - 支持键盘 Focus、Escape 和 `prefers-reduced-motion`。
 
-不能让每个 Message Card 各自创建一个 Portal 按钮。
+不能让每个 Message Card 各自创建按钮或 Portal。
 
-### 6.3 Composer Reference List
+### 6.4 Composer Reference List
 
-```tsx
-<AddToChatReferenceList controller={addToChat} />
-```
-
-列表订阅 `references`，负责：
+插件实例把 Reference List 通过 Portal 渲染到 `getReferenceHost()` 返回的现有节点。列表负责：
 
 - 在输入框上方渲染每个数据源。
 - 使用稳定的 `reference.id` 作为 key。
@@ -225,9 +237,27 @@ Boundary 不渲染浮动按钮、不保存已添加引用、不访问 Composer�
 
 ## 7. 宿主接入
 
-```tsx
+```ts
 function ChatShell() {
-  const addToChat = useAddToChat();
+  // 这两个节点由宿主现有布局提供，不为 Add to Chat 新建包裹层。
+  const chatViewport = getExistingChatViewport();
+  const composerReferenceSlot = getExistingComposerReferenceSlot();
+
+  const addToChat = mountAddToChat({
+    adapter: createDomSelectionAdapter({
+      getSelectionRoot: () => chatViewport,
+      getReferenceHost: () => composerReferenceSlot,
+      resolveSource: ({ startElement }) => {
+        const frame = startElement.closest("[data-frame-id]");
+
+        return {
+          type: "chat-message",
+          targetId: frame?.getAttribute("data-frame-id") ?? undefined,
+          turnId: frame?.getAttribute("data-turn-id") ?? undefined,
+        };
+      },
+    }),
+  });
 
   const send = async () => {
     const references = addToChat.getReferences();
@@ -240,23 +270,13 @@ function ChatShell() {
     addToChat.clearReferences();
   };
 
-  return (
-    <>
-      <AddToChatAction controller={addToChat} />
-
-      <ChatRuntimeView
-        runtime={runtime}
-        renderer={renderer}
-      />
-
-      <Composer>
-        <AddToChatReferenceList controller={addToChat} />
-        <ComposerInput value={input} />
-      </Composer>
-    </>
-  );
+  return { send, dispose: () => addToChat.dispose() };
 }
 ```
+
+`ChatRuntimeView`、Message Renderer 和 Composer 的原有渲染代码无需出现 Add to Chat。宿主只需暴露已经存在的聊天滚动容器和 Composer 引用插槽。如果现有 Composer 没有引用插槽，应由 Composer 提供通用 extension slot，而不是让 Add to Chat 包裹 Composer。
+
+React 宿主可以在自己的 `useEffect` 中调用 `mountAddToChat()` 并在 cleanup 中执行 `dispose()`；这仍不会在 React 内容树里增加一层组件。
 
 清理策略由宿主决定：
 
@@ -299,16 +319,26 @@ Composer
 
 ### 9.1 同宿主 React Renderer
 
-可信且与宿主共同构建的 React Renderer 可以使用 Selection Boundary：
+第三方 React Renderer 不需要 import Add to Chat，也不需要包裹自身内容。宿主在 `resolveSource` 中读取该 Renderer 已有的稳定 DOM 属性：
 
 ```tsx
-<AddToChatSelectionBoundary
-  controller={controller}
-  source={{ type: "order", targetId: order.id }}
->
-  <OrderDetails order={order} />
-</AddToChatSelectionBoundary>
+function OrderDetails({ order }: Props) {
+  return <article data-order-id={order.id}>{/* existing content */}</article>;
+}
+
+const adapter = createDomSelectionAdapter({
+  getSelectionRoot: () => existingWorkbenchElement,
+  getReferenceHost: () => existingComposerReferenceSlot,
+  resolveSource: ({ startElement }) => ({
+    type: "order",
+    targetId: startElement
+      .closest("[data-order-id]")
+      ?.getAttribute("data-order-id") ?? undefined,
+  }),
+});
 ```
+
+如果 Renderer 连稳定属性也不能增加，业务可以在 `resolveSource` 中使用自身已有 DOM 到业务 ID 的映射。这个适配逻辑属于宿主，不进入 Renderer。
 
 ### 9.2 远程或非 React Renderer
 
@@ -341,8 +371,8 @@ interface WorkbenchRendererHandle {
 | Runtime 投影 NavigationItem | Renderer 投影 ContextReference |
 | NavigationStore | AddToChatStore |
 | `useChatTurnNavigation()` | `useAddToChat()` |
-| `ChatViewportAdapter` | Selection Provider/Adapter |
-| `ChatTurnNavigationRail` | `AddToChatAction` + Reference List |
+| `ChatViewportAdapter` | `AddToChatSelectionAdapter` |
+| `ChatTurnNavigationRail` | `mountAddToChat()` / 可选 `AddToChatPlugin` |
 | Runtime 不处理滚动 | Runtime 不处理 selection/context draft |
 | 业务提供 Preview | 业务提供 Reference source/metadata |
 
@@ -374,7 +404,7 @@ interface WorkbenchRendererHandle {
 2. 每个 Controller 只拥有一个 Store。
 3. Streaming token 不重建已添加 references。
 4. Selection 几何更新按 animation frame 合并。
-5. Boundary 卸载时撤销由自己产生的临时 selection。
+5. Adapter root 变化或插件卸载时撤销临时 selection。
 6. Controller 销毁时清理事件监听、frame 和 subscriptions。
 7. Store 不持有 DOM 引用。
 8. Reference List 使用稳定 ID，不使用数组 offset 作为身份。
@@ -386,19 +416,20 @@ interface WorkbenchRendererHandle {
 - `ContextReference` 和 Selection contracts。
 - `AddToChatStore`。
 - `useAddToChat()` Controller。
-- React Selection Boundary。
-- 单例浮动 Action。
-- Composer Reference List。
+- DOM Selection Adapter。
+- 框架无关、挂载一次的 `mountAddToChat()`。
+- 可选的 React `AddToChatPlugin` 便利适配器。
+- 通过 Portal 渲染的单例浮动 Action 和 Composer Reference List。
 - 多引用追加和独立删除。
 - 宿主 Submission reference 快照。
 - 一个原生聊天 Renderer 示例。
-- Store、Boundary、Action、列表和发送投影测试。
+- Store、Adapter、Plugin、列表和发送投影测试。
 
 第一版不实现：
 
 - 远程 ESM loader。
 - iframe selection 桥接。
-- 跨多个 DOM Boundary 的选区。
+- 跨多个 selection root 的选区。
 - Reference 持久化和跨会话恢复。
 - 自动摘要或 token 截断。
 - Agent 特定的 prompt 拼接规则。
@@ -415,3 +446,6 @@ interface WorkbenchRendererHandle {
 8. Agent 请求端能观察到完整 references，不能只停留在 Demo UI。
 9. 第三方 Renderer 可以只通过 selection 协议接入，不依赖 React。
 10. 插件销毁后不存在 document listener、Portal 或 Store subscription 泄漏。
+11. 插件不作为 `ChatRuntimeView`、消息内容或 Composer 的父组件，不改变现有内容树层级。
+12. 未 import 或未调用 `mountAddToChat()` 时，页面没有该功能及任何相关副作用。
+13. React 宿主可以不渲染任何 Add to Chat JSX，仅通过现有 DOM 节点完成接入。
