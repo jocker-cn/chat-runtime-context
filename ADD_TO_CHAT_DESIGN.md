@@ -180,7 +180,7 @@ registerAddToChat({
   id: "main-chat-add-to-chat",
   selectionRoot: ".crt-runtime",
   referenceHost: "[data-chat-reference-host]",
-  references: referencesStore,
+  runtimeKeyValue,
   resolveSource: ({ startElement }) => ({
     type: "chat-message",
     messageId: startElement
@@ -190,7 +190,32 @@ registerAddToChat({
 });
 ```
 
-`referencesStore` 是宿主提供的数据接口，既可以使用普通外部 Store，也可以适配 Runtime KeyValue。注册 API 只消费 `getSnapshot / subscribe / add / remove / clear`，不规定数据存在哪里。
+`id` 同时是插件实例 ID 和默认数据命名空间。插件通过宿主提供的 `runtimeKeyValue` 自动使用类似 `add-to-chat/<id>/references` 的 key。页面存在多个注册时可以共用同一个 Runtime KeyValue，但每个 ID 的 references 相互隔离：
+
+```ts
+registerAddToChat({
+  id: "support-chat",
+  runtimeKeyValue,
+  selectionRoot: "#support-chat .crt-runtime",
+  referenceHost: "#support-chat [data-chat-reference-host]",
+});
+
+registerAddToChat({
+  id: "sales-chat",
+  runtimeKeyValue,
+  selectionRoot: "#sales-chat .crt-runtime",
+  referenceHost: "#sales-chat [data-chat-reference-host]",
+});
+```
+
+对应的逻辑存储位置分别是：
+
+```text
+add-to-chat/support-chat/references
+add-to-chat/sales-chat/references
+```
+
+同一实例内的每次 Add to Chat 都生成独立 `ContextReference.id`，追加到该实例的 references 数组，不会覆盖旧数据。需要接入其他存储时，可以通过高级配置显式传入实现 `ContextReferenceStore` 的 `references`；`runtimeKeyValue` 和 `references` 二选一。
 
 注册之后，插件宿主负责：
 
@@ -288,14 +313,18 @@ export function ChatPage() {
 发送链路通过独立的 references 数据接口读取快照：
 
 ```ts
-const references = referencesStore.getSnapshot();
+const references = runtimeKeyValue.get(
+  "add-to-chat/main-chat-add-to-chat/references",
+);
 
 await enqueue({
   text: input,
   contextReferences: references,
 });
 
-referencesStore.clear();
+runtimeKeyValue.delete(
+  "add-to-chat/main-chat-add-to-chat/references",
+);
 ```
 
 清理策略由宿主决定：
