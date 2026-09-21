@@ -175,12 +175,15 @@ export function createAddToChatController(options: {
 import { registerAddToChat } from "@chat-runtime/add-to-chat";
 import { chatPluginRegistry } from "./chatPluginRegistry";
 
+const id = "main-chat-add-to-chat";
+const references = referenceStoreFactory.forScope(id);
+
 registerAddToChat({
   registry: chatPluginRegistry,
-  id: "main-chat-add-to-chat",
+  id,
   selectionRoot: ".crt-runtime",
   referenceHost: "[data-chat-reference-host]",
-  runtimeKeyValue,
+  references,
   resolveSource: ({ startElement }) => ({
     type: "chat-message",
     messageId: startElement
@@ -190,32 +193,34 @@ registerAddToChat({
 });
 ```
 
-`id` 同时是插件实例 ID 和默认数据命名空间。插件通过宿主提供的 `runtimeKeyValue` 自动使用类似 `add-to-chat/<id>/references` 的 key。页面存在多个注册时可以共用同一个 Runtime KeyValue，但每个 ID 的 references 相互隔离：
+插件只依赖调用方传入的 `ContextReferenceStore`，不接收也不理解 Runtime KeyValue。调用方可以使用同一个 `id` 创建对应的存储 scope，从而让注册实例与数据命名空间自然匹配：
 
 ```ts
+const supportId = "support-chat";
 registerAddToChat({
-  id: "support-chat",
-  runtimeKeyValue,
+  id: supportId,
+  references: referenceStoreFactory.forScope(supportId),
   selectionRoot: "#support-chat .crt-runtime",
   referenceHost: "#support-chat [data-chat-reference-host]",
 });
 
+const salesId = "sales-chat";
 registerAddToChat({
-  id: "sales-chat",
-  runtimeKeyValue,
+  id: salesId,
+  references: referenceStoreFactory.forScope(salesId),
   selectionRoot: "#sales-chat .crt-runtime",
   referenceHost: "#sales-chat [data-chat-reference-host]",
 });
 ```
 
-对应的逻辑存储位置分别是：
+如果调用方的 `referenceStoreFactory` 基于 Runtime KeyValue，实现可以映射到：
 
 ```text
 add-to-chat/support-chat/references
 add-to-chat/sales-chat/references
 ```
 
-同一实例内的每次 Add to Chat 都生成独立 `ContextReference.id`，追加到该实例的 references 数组，不会覆盖旧数据。需要接入其他存储时，可以通过高级配置显式传入实现 `ContextReferenceStore` 的 `references`；`runtimeKeyValue` 和 `references` 二选一。
+同一实例内的每次 Add to Chat 都生成独立 `ContextReference.id`，追加到该实例的 references 数组，不会覆盖旧数据。插件不负责创建、选择或持久化 Store；普通内存 Store、Runtime KeyValue adapter、Redux 或其他实现对插件完全等价。
 
 注册之后，插件宿主负责：
 
@@ -313,18 +318,14 @@ export function ChatPage() {
 发送链路通过独立的 references 数据接口读取快照：
 
 ```ts
-const references = runtimeKeyValue.get(
-  "add-to-chat/main-chat-add-to-chat/references",
-);
+const contextReferences = references.getSnapshot();
 
 await enqueue({
   text: input,
-  contextReferences: references,
+  contextReferences,
 });
 
-runtimeKeyValue.delete(
-  "add-to-chat/main-chat-add-to-chat/references",
-);
+references.clear();
 ```
 
 清理策略由宿主决定：
@@ -508,7 +509,7 @@ interface WorkbenchRendererHandle {
 
 - 公共 selection/reference/registration contracts。
 - 只保存瞬时 selection 的 `AddToChatViewStore`。
-- 按注册 ID 使用 Runtime KeyValue 的 `ContextReferenceStore` adapter。
+- 只消费调用方 `ContextReferenceStore` 的 Controller。
 - 支持同 ID 原子替换和销毁的 `registerAddToChat()`。
 - DOM selection adapter、浮动 Action、Reference List、Portal 和样式。
 - `index.ts` 公共导出。
@@ -540,7 +541,9 @@ Demo Composer 在输入框上方增加一个空的、产品无关的 extension s
 
 新增业务注册模块，例如 `src/chat/demo/addToChat.register.ts`，并由 `src/main.tsx` side-effect import。React 页面中不新增 Hook 或 effect。
 
-多个 Demo Runtime 使用不同注册 ID 和 DOM scope，共用 Runtime KeyValue：
+Demo 集成层自行创建 `ContextReferenceStore`。如果选择 Runtime KeyValue，`createRuntimeKeyValueReferenceStore` 应放在业务 adapter/integration 目录，由调用方创建并传入插件，而不是放在 Add to Chat 插件内部。
+
+多个 Demo Runtime 使用不同注册 ID 和 DOM scope；调用方按相同 ID 创建独立 Store scope：
 
 ```text
 compare-chat -> add-to-chat/compare-chat/references
@@ -566,7 +569,7 @@ Composer 发送时读取当前注册 ID 的不可变快照。Runtime queue targe
 新增测试覆盖：
 
 - 同 ID 重复注册不会重复挂载。
-- 不同 ID 的 Runtime KeyValue 数据隔离。
+- 不同 ID 传入的 `ContextReferenceStore` 数据隔离。
 - 多次 Add 追加而非覆盖。
 - 选区只能来自对应 `.crt-runtime`。
 - Portal 渲染到对应 Composer slot。
