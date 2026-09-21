@@ -1,4 +1,7 @@
-import type { Message } from "@ag-ui/client";
+import type {
+  Message,
+  RunAgentParameters,
+} from "@ag-ui/client";
 import {
   BackendTransportAgent,
   type BackendTransportDisconnectEvent,
@@ -21,6 +24,8 @@ import {
 } from "../../core";
 import type {
   ChatSourceMessageContext,
+  ContextReference,
+  QueueItem,
   QueueScheduler,
   SubmissionQueue,
 } from "../../core";
@@ -89,12 +94,7 @@ export interface BeComparisonRuntimeOptions {
   threadId?: string;
 }
 
-export interface DemoRuntimeController<
-  TRuntime extends CompareChatRuntime<string, DemoMessage> = CompareChatRuntime<
-    string,
-    DemoMessage
-  >,
-> {
+export interface DemoRuntimeController<TRuntime> {
   runtime: TRuntime;
   queue: SubmissionQueue<DemoSubmission>;
   scheduler: QueueScheduler<DemoSubmission>;
@@ -114,8 +114,14 @@ export interface DemoRuntimeController<
 export interface DemoSubmission {
   text: string;
   referencedMessageId?: string;
+  contextReferences?: readonly ContextReference[];
   data?: Record<string, unknown>;
   attachments?: readonly unknown[];
+}
+
+export interface DemoRuntimeInput {
+  message: DemoMessage;
+  parameters?: RunAgentParameters;
 }
 
 export const DEMO_COMPARE_SOURCE_BRANCH_IDS = {
@@ -128,14 +134,16 @@ export const DEMO_RETRY_USER_ERROR_PRIORITY = Number.MAX_SAFE_INTEGER;
 type DemoCompareSourceBranchId =
   (typeof DEMO_COMPARE_SOURCE_BRANCH_IDS)[keyof typeof DEMO_COMPARE_SOURCE_BRANCH_IDS];
 
-export type BeComparisonRuntimeController = DemoRuntimeController & {
+export type BeComparisonRuntimeController = DemoRuntimeController<
+  CompareChatRuntime<DemoRuntimeInput, DemoMessage>
+> & {
   socket: {
     closeWithError(sourceBranchId: DemoCompareSourceBranchId): void;
   };
 };
 
 export type BeSingleRuntimeController = DemoRuntimeController<
-  SingleAgentRuntime<string, DemoMessage>
+  SingleAgentRuntime<DemoRuntimeInput, DemoMessage>
 > & {
   socket: {
     closeWithError(): void;
@@ -179,13 +187,9 @@ export function createBeComparisonRuntime({
     DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB,
   );
 
-  const runtime = new CompareChatRuntime<string, DemoMessage>({
+  const runtime = new CompareChatRuntime<DemoRuntimeInput, DemoMessage>({
     threadId,
-    createInputMessage: (input, turnId) => ({
-      id: `${turnId}:input`,
-      role: "user",
-      content: input,
-    }),
+    createInputMessage: (input) => input.message,
     sources: [
       {
         branchId: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
@@ -220,7 +224,13 @@ export function createBeComparisonRuntime({
     }),
   });
 
-  const controller = createDemoRuntimeController(runtime);
+  const controller = createDemoRuntimeControllerWithInput<
+    DemoRuntimeInput,
+    typeof runtime
+  >(
+    runtime,
+    createDemoRuntimeInput,
+  );
   agentA.onDisconnected = (event) => {
     void addSocketDisconnectError(
       runtime,
@@ -280,23 +290,25 @@ export function createBeSingleRuntime({
   });
   const unsubscribeAgent = observeDemoAgentLifecycle(agent, "agent-single");
 
-  const runtime = new SingleAgentRuntime<string, DemoMessage>({
+  const runtime = new SingleAgentRuntime<DemoRuntimeInput, DemoMessage>({
     threadId,
     branchId: "agent-single",
     branchLabel: "Single Agent",
     metadata: {
       agent,
     },
-    createInputMessage: (input, turnId) => ({
-      id: `${turnId}:input`,
-      role: "user",
-      content: input,
-    }),
+    createInputMessage: (input) => input.message,
     source,
     historyMessages,
   });
 
-  const controller = createDemoRuntimeController(runtime);
+  const controller = createDemoRuntimeControllerWithInput<
+    DemoRuntimeInput,
+    typeof runtime
+  >(
+    runtime,
+    createDemoRuntimeInput,
+  );
   agent.onDisconnected = (event) => {
     void addSocketDisconnectError(
       runtime,
@@ -322,25 +334,40 @@ export function createBeSingleRuntime({
 export function createDemoRuntimeController<
   TRuntime extends CompareChatRuntime<string, DemoMessage>,
 >(runtime: TRuntime): DemoRuntimeController<TRuntime> {
-  const queue = createSubmissionQueue<DemoSubmission>();
-  const runtimeTarget = createChatRuntimeQueueTarget<DemoSubmission, string>({
+  return createDemoRuntimeControllerWithInput<string, TRuntime>(
     runtime,
-    toInput: (item) => item.payload.text,
-    toRunOptions: (item) => {
-      const referencedMessageId = item.payload.referencedMessageId;
-      if (!referencedMessageId) {
-        return undefined;
-      }
+    (item) => item.payload.text,
+    (item) => item.payload.referencedMessageId
+      ? {
+          inputMessage: {
+            id: `${item.id}:input`,
+            role: "user",
+            content: item.payload.text,
+            referencedMessageId: item.payload.referencedMessageId,
+          },
+        }
+      : undefined,
+  );
+}
 
-      return {
-        inputMessage: {
-          id: `${item.id}:input`,
-          role: "user",
-          content: item.payload.text,
-          referencedMessageId,
-        } as DemoMessage,
-      };
-    },
+function createDemoRuntimeControllerWithInput<
+  TInput,
+  TRuntime extends CompareChatRuntime<TInput, DemoMessage>,
+>(
+  runtime: TRuntime,
+  toInput: (item: QueueItem<DemoSubmission>) => TInput,
+  toRunOptions?: (
+    item: QueueItem<DemoSubmission>,
+  ) => { inputMessage: DemoMessage } | undefined,
+): DemoRuntimeController<TRuntime> {
+  const queue = createSubmissionQueue<DemoSubmission>();
+  const runtimeTarget = createChatRuntimeQueueTarget<
+    DemoSubmission,
+    TInput
+  >({
+    runtime,
+    toInput,
+    toRunOptions,
   });
   const scheduler = createQueueScheduler({
     queue,
@@ -402,7 +429,11 @@ export function createDemoRuntimeController<
       const text = getUserErrorText(message);
       if (text !== undefined) {
         queue.enqueue(
-          { text },
+          {
+            text,
+            referencedMessageId: message.referencedMessageId,
+            contextReferences: message.contextReferences,
+          },
           { priority: DEMO_RETRY_USER_ERROR_PRIORITY },
         );
       }
@@ -415,9 +446,33 @@ export function createDemoRuntimeController<
   };
 }
 
+function createDemoRuntimeInput(
+  item: QueueItem<DemoSubmission>,
+): DemoRuntimeInput {
+  const contextReferences = item.payload.contextReferences ?? [];
+
+  return {
+    message: {
+      id: `${item.id}:input`,
+      role: "user",
+      content: item.payload.text,
+      referencedMessageId: item.payload.referencedMessageId,
+      contextReferences,
+    },
+    parameters: contextReferences.length > 0
+      ? {
+          context: [{
+            description: "addToChatReferences",
+            value: JSON.stringify(contextReferences),
+          }],
+        }
+      : undefined,
+  };
+}
+
 const DEMO_AI_ERROR_SCENARIO_CODE = "DEMO_AI_ERROR_WITH_CONTEXT";
 
-class DemoAgUiAgentSource extends AgUiAgentSource<string> {
+class DemoAgUiAgentSource extends AgUiAgentSource<DemoRuntimeInput> {
   public override addLocalMessage(
     message: Message,
     context: ChatSourceMessageContext,
@@ -456,8 +511,8 @@ function isDemoAiErrorScenario(message: Message) {
   );
 }
 
-function resolveLastAssistantResponseTarget(
-  runtime: CompareChatRuntime<string, DemoMessage>,
+function resolveLastAssistantResponseTarget<TInput>(
+  runtime: CompareChatRuntime<TInput, DemoMessage>,
   sourceBranchId?: string,
 ): { turnId: string; branchId: string } | undefined {
   const snapshot = runtime.getSnapshot();
@@ -493,8 +548,8 @@ function getUserErrorText(message: DemoMessage) {
   return message.content;
 }
 
-async function addSocketDisconnectError(
-  runtime: CompareChatRuntime<string, DemoMessage>,
+async function addSocketDisconnectError<TInput>(
+  runtime: CompareChatRuntime<TInput, DemoMessage>,
   queue: SubmissionQueue<DemoSubmission>,
   sourceBranchId: string,
   event: BackendTransportDisconnectEvent,
@@ -522,8 +577,8 @@ function reportSocketDisconnectError(error: unknown) {
   console.error("Failed to add Socket disconnect Error Message.", error);
 }
 
-function waitUntilRuntimeStopsRunning(
-  runtime: CompareChatRuntime<string, DemoMessage>,
+function waitUntilRuntimeStopsRunning<TInput>(
+  runtime: CompareChatRuntime<TInput, DemoMessage>,
 ): Promise<boolean> {
   const status = runtime.getSnapshot().status;
   if (status !== "running") {

@@ -1,4 +1,5 @@
 import type { Message } from "@ag-ui/client";
+import type { ContextReference } from "../../core";
 
 export interface DemoMessageAction {
   id: string;
@@ -9,6 +10,7 @@ export interface DemoMessageAction {
 export type DemoMessage = Message & {
   actions?: readonly DemoMessageAction[];
   referencedMessageId?: string;
+  contextReferences?: readonly ContextReference[];
   status?: string;
 };
 

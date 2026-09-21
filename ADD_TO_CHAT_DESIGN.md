@@ -1,6 +1,6 @@
 # Add to Chat 插件设计记录
 
-> 状态：设计草案，尚未实现  
+> 状态：第一版已实现
 > 记录日期：2026-09-21  
 > 依据：`CHAT_TURN_NAVIGATION_DESIGN.md` 的可选 View 插件、Controller、Store、Adapter 与宿主边界。
 
@@ -52,11 +52,9 @@ src/core/chat/plugins/add-to-chat/
   contracts.ts
   AddToChatStore.ts
   createAddToChatController.ts
-  registerAddToChat.ts
-  AddToChatAction.tsx
-  AddToChatReferenceList.tsx
+  registerAddToChat.tsx
+  AddToChatView.tsx
   createDomSelectionAdapter.ts
-  styles.css
   index.ts
 ```
 
@@ -173,12 +171,10 @@ export interface AddToChatRegistration {
 
 ```ts
 import { registerAddToChat } from "@chat-runtime/add-to-chat";
-import { chatPluginRegistry } from "./chatPluginRegistry";
 
 const id = "main-chat-add-to-chat";
 
 export const mainChatAddToChat = registerAddToChat({
-  registry: chatPluginRegistry,
   id,
   selectionRoot: ".crt-runtime",
   referenceHost: "[data-chat-reference-host]",
@@ -525,7 +521,7 @@ interface WorkbenchRendererHandle {
 - DOM selection adapter、浮动 Action、Reference List、Portal 和样式。
 - `index.ts` 公共导出。
 
-新增通用 Chat View Plugin Registry/Host。它属于插件基础设施，不写入 `ChatRuntimeSnapshot`；负责 registration activate/dispose、等待 DOM target、重挂载和 HMR 替换。
+`registerAddToChat.tsx` 内部维护按 ID 隔离的 View Plugin Registry。它不写入 `ChatRuntimeSnapshot`；负责 registration activate/dispose、等待 DOM target、重挂载和 HMR 替换。
 
 ### 15.2 当前 Runtime View 不改结构
 
