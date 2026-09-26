@@ -1,0 +1,515 @@
+.page {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr) 324px;
+  min-height: 100dvh;
+  background: #f5f7f9;
+  color: #182026;
+}
+
+.sidebar,
+.inspector {
+  min-width: 0;
+  background: #fff;
+}
+
+.sidebar {
+  border-right: 1px solid #dce2e8;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 16px;
+}
+
+.sidebarHeader h1,
+.chatHeader h2,
+.editorPanel h2 {
+  font-size: 20px;
+  margin: 8px 0 5px;
+}
+
+.sidebarHeader p,
+.chatHeader p,
+.editorPanel > p,
+.referenceGroup p {
+  color: #718091;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.overline {
+  color: #23866f;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .1em;
+}
+
+.createGrid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 24px 0;
+}
+
+.createGrid button,
+.catalogItem,
+.backLink {
+  border: 1px solid #dce2e8;
+  border-radius: 8px;
+  background: #fff;
+  color: #304455;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 9px;
+  text-align: left;
+}
+
+.createGrid button:hover,
+.catalogItem:hover,
+.catalogItem[data-active="true"] {
+  border-color: #94cbb7;
+  background: #eef8f4;
+}
+
+.catalogList {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.catalogList section + section {
+  margin-top: 19px;
+}
+
+.catalogList h2 {
+  color: #8290a0;
+  font-size: 11px;
+  letter-spacing: .08em;
+  margin: 0 0 7px;
+  text-transform: uppercase;
+}
+
+.catalogItem {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0;
+  width: 100%;
+}
+
+.catalogItem small,
+.emptyGroup {
+  color: #8996a2;
+  font-size: 11px;
+}
+
+.emptyGroup {
+  margin: 5px 9px;
+}
+
+.backLink {
+  margin-top: 22px;
+  text-decoration: none;
+}
+
+.chatColumn {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 520px;
+  min-width: 0;
+}
+
+.chatHeader {
+  align-items: center;
+  border-bottom: 1px solid #dce2e8;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 18px 30px;
+}
+
+.chatHeader h2 {
+  margin: 3px 0 2px;
+}
+
+.agentToggle {
+  align-items: center;
+  border: 1px solid #bcd7ce;
+  border-radius: 999px;
+  background: #eef8f4;
+  color: #165d4c;
+  cursor: pointer;
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 7px;
+  padding: 7px 12px;
+}
+
+.chatViewport {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 26px max(28px, calc((100% - 960px) / 2));
+}
+
+.runtime {
+  gap: 20px;
+}
+
+.branch {
+  background: #fbfdfc;
+  border-color: #c9dfd6;
+  box-shadow: inset 3px 0 0 #23866f;
+}
+
+.chatEmpty,
+.loading {
+  color: #718091;
+  font-size: 14px;
+  padding-top: 55px;
+  text-align: center;
+}
+
+.composerArea {
+  background: linear-gradient(180deg, rgba(245, 247, 249, 0), #f5f7f9 12%);
+  padding: 13px max(28px, calc((100% - 960px) / 2)) 23px;
+}
+
+.pocNote {
+  color: #788697;
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0 0 8px;
+}
+
+.composer {
+  border: 1px solid #cbd5df;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(30, 45, 55, .06);
+  position: relative;
+}
+
+.selectedChip {
+  align-items: center;
+  border-bottom: 1px solid #e8edf1;
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 15px;
+}
+
+.selectedChip strong {
+  color: #16735b;
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.selectedChip span {
+  color: #657587;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectedChip button {
+  border: 0;
+  background: transparent;
+  color: #84919d;
+  cursor: pointer;
+  font-size: 17px;
+  margin-left: auto;
+}
+
+.editorFrame {
+  min-height: 92px;
+  padding: 13px 16px;
+  position: relative;
+}
+
+.tiptapEditor {
+  min-height: 65px;
+  outline: none;
+  overflow-y: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.tiptapEditor :global(p) {
+  margin: 0 0 5px;
+}
+
+.placeholder {
+  color: #a1abb6;
+  left: 16px;
+  pointer-events: none;
+  position: absolute;
+  top: 13px;
+}
+
+.composerFooter {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  padding: 0 12px 10px;
+}
+
+.composerFooter span {
+  color: #9aa5b0;
+  font-size: 11px;
+}
+
+.slashButton,
+.sendButton {
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.slashButton {
+  background: #f0f4f6;
+  color: #526475;
+  padding: 5px 10px;
+}
+
+.sendButton {
+  background: #23866f;
+  color: #fff;
+  margin-left: auto;
+  padding: 7px 12px;
+}
+
+.sendButton:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+.slashMenu {
+  border: 1px solid #d6dfe5;
+  border-radius: 12px;
+  background: #fff;
+  bottom: calc(100% + 8px);
+  box-shadow: 0 16px 38px rgba(30, 45, 55, .14);
+  left: 0;
+  max-height: 310px;
+  overflow-y: auto;
+  padding: 8px;
+  position: absolute;
+  width: min(440px, 100%);
+  z-index: 5;
+}
+
+.slashTitle {
+  color: #8795a3;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 7px 9px;
+}
+
+.slashMenu > p {
+  color: #718091;
+  font-size: 12px;
+  padding: 8px 9px;
+}
+
+.slashMenu button {
+  align-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.slashMenu button:hover,
+.slashMenu button[aria-selected="true"] {
+  background: #edf7f3;
+}
+
+.choiceKind {
+  border-radius: 5px;
+  background: #e5f3ed;
+  color: #16735b;
+  flex: 0 0 51px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 5px 2px;
+  text-align: center;
+}
+
+.choiceText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.choiceText strong,
+.choiceText small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.choiceText strong {
+  font-size: 12px;
+}
+
+.choiceText small {
+  color: #8a98a5;
+  font-size: 11px;
+}
+
+.invocationPreview {
+  color: #667889;
+  font-size: 11px;
+  margin-top: 8px;
+}
+
+.invocationPreview pre {
+  background: #1e2932;
+  border-radius: 7px;
+  color: #dceee8;
+  max-height: 170px;
+  overflow: auto;
+  padding: 9px;
+}
+
+.inspector {
+  border-left: 1px solid #dce2e8;
+  height: 100dvh;
+  overflow-y: auto;
+}
+
+.editorPanel {
+  display: grid;
+  gap: 15px;
+  padding: 22px 19px;
+}
+
+.editorPanel h2 {
+  margin-bottom: -11px;
+}
+
+.field {
+  color: #4c5d6c;
+  display: grid;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.field input,
+.field textarea {
+  border: 1px solid #cbd5df;
+  border-radius: 8px;
+  color: #182026;
+  font: inherit;
+  font-weight: 400;
+  min-width: 0;
+  padding: 9px 10px;
+  resize: vertical;
+}
+
+.enabledField,
+.referenceGroup label {
+  align-items: center;
+  color: #4c5d6c;
+  display: flex;
+  font-size: 12px;
+  gap: 7px;
+}
+
+.referenceGroup {
+  border: 1px solid #e0e6ec;
+  border-radius: 8px;
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 10px;
+}
+
+.referenceGroup legend {
+  color: #4c5d6c;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 5px;
+}
+
+.formError {
+  color: #b42318;
+  font-size: 12px;
+}
+
+.editorActions {
+  display: flex;
+  gap: 8px;
+}
+
+.editorActions button {
+  border: 1px solid #23866f;
+  border-radius: 8px;
+  background: #23866f;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 9px 11px;
+}
+
+.editorActions button + button {
+  border-color: #d6dfe5;
+  background: #fff;
+  color: #9b2c2c;
+}
+
+@media (max-width: 1100px) {
+  .page {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+  .inspector {
+    border-top: 1px solid #dce2e8;
+    grid-column: 1 / -1;
+    height: auto;
+  }
+  .editorPanel {
+    max-width: 700px;
+  }
+}
+
+@media (max-width: 700px) {
+  .page {
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar {
+    border-bottom: 1px solid #dce2e8;
+  }
+  .catalogList {
+    max-height: 140px;
+  }
+  .chatColumn {
+    height: 75dvh;
+  }
+  .chatHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 13px 18px;
+  }
+  .chatViewport {
+    padding: 18px;
+  }
+  .composerArea {
+    padding: 10px 18px 16px;
+  }
+}

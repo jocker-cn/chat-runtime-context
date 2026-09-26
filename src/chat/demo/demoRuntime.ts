@@ -129,6 +129,7 @@ type DemoCompareSourceBranchId =
   (typeof DEMO_COMPARE_SOURCE_BRANCH_IDS)[keyof typeof DEMO_COMPARE_SOURCE_BRANCH_IDS];
 
 export type BeComparisonRuntimeController = DemoRuntimeController & {
+  setSecondaryAgentEnabled(enabled: boolean): void;
   socket: {
     closeWithError(sourceBranchId: DemoCompareSourceBranchId): void;
   };
@@ -146,6 +147,7 @@ export function createBeComparisonRuntime({
   websocketUrl = "ws://localhost:8080/ws/copilot",
   threadId = "ab-chat",
 }: BeComparisonRuntimeOptions = {}): BeComparisonRuntimeController {
+  let secondaryAgentEnabled = true;
   const sourceAHistoryMessages = createSourceAMockHistory();
   const agentA = createSocketAgent({
     websocketUrl,
@@ -220,7 +222,12 @@ export function createBeComparisonRuntime({
     }),
   });
 
-  const controller = createDemoRuntimeController(runtime);
+  const controller = createDemoRuntimeController(runtime, {
+    getBranchIds: () =>
+      secondaryAgentEnabled
+        ? undefined
+        : [DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA],
+  });
   agentA.onDisconnected = (event) => {
     void addSocketDisconnectError(
       runtime,
@@ -239,6 +246,9 @@ export function createBeComparisonRuntime({
   };
   return {
     ...controller,
+    setSecondaryAgentEnabled: (enabled) => {
+      secondaryAgentEnabled = enabled;
+    },
     dispose: async () => {
       unsubscribeAgentA();
       unsubscribeAgentB();
@@ -321,24 +331,33 @@ export function createBeSingleRuntime({
 
 export function createDemoRuntimeController<
   TRuntime extends CompareChatRuntime<string, DemoMessage>,
->(runtime: TRuntime): DemoRuntimeController<TRuntime> {
+>(
+  runtime: TRuntime,
+  options: { getBranchIds?: () => readonly string[] | undefined } = {},
+): DemoRuntimeController<TRuntime> {
   const queue = createSubmissionQueue<DemoSubmission>();
   const runtimeTarget = createChatRuntimeQueueTarget<DemoSubmission, string>({
     runtime,
     toInput: (item) => item.payload.text,
     toRunOptions: (item) => {
       const referencedMessageId = item.payload.referencedMessageId;
-      if (!referencedMessageId) {
+      const branchIds = options.getBranchIds?.();
+      if (!referencedMessageId && !branchIds) {
         return undefined;
       }
 
       return {
-        inputMessage: {
-          id: `${item.id}:input`,
-          role: "user",
-          content: item.payload.text,
-          referencedMessageId,
-        } as DemoMessage,
+        branchIds,
+        ...(referencedMessageId
+          ? {
+              inputMessage: {
+                id: `${item.id}:input`,
+                role: "user",
+                content: item.payload.text,
+                referencedMessageId,
+              } as DemoMessage,
+            }
+          : {}),
       };
     },
   });

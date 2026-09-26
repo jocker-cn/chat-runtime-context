@@ -212,6 +212,49 @@ describe("DemoRuntimeController error messages", () => {
     await controller.dispose();
   });
 
+  it("can target one or two Compare sources per new turn without rebuilding runtime", async () => {
+    const sourceA = createControlledSource("source-a");
+    const sourceB = createControlledSource("source-b");
+    let sequence = 0;
+    let secondaryEnabled = false;
+    const runtime = new CompareChatRuntime<string, DemoMessage>({
+      sources: [
+        { branchId: "branch-a", source: sourceA.source },
+        { branchId: "branch-b", source: sourceB.source },
+      ],
+      createTurnId: () => `toggle-${++sequence}`,
+      createInputMessage: (content, turnId) => ({
+        id: `${turnId}:input`, role: "user", content,
+      }),
+    });
+    const controller = createDemoRuntimeController(runtime, {
+      getBranchIds: () => secondaryEnabled ? undefined : ["branch-a"],
+    });
+
+    controller.queue.enqueue({ text: "A only" });
+    await vi.waitFor(() => expect(runtime.getSnapshot().status).toBe("idle"));
+    await vi.waitFor(() => expect(runtime.getSnapshot().turnIds).toHaveLength(1));
+    expect(runtime.getSnapshot().turnsById["toggle-1"]?.branchIds).toEqual([
+      "toggle-1:branch-a",
+    ]);
+    expect(sourceB.inputs).toEqual([]);
+
+    secondaryEnabled = true;
+    controller.queue.enqueue({ text: "A and B" });
+    await vi.waitFor(() => expect(runtime.getSnapshot().turnIds).toHaveLength(2));
+    await vi.waitFor(() => expect(runtime.getSnapshot().status).toBe("idle"));
+    expect(runtime.getSnapshot().turnsById["toggle-2"]?.branchIds).toEqual([
+      "toggle-2:branch-a", "toggle-2:branch-b",
+    ]);
+    expect(runtime.getSnapshot().turnsById["toggle-1"]?.branchIds).toEqual([
+      "toggle-1:branch-a",
+    ]);
+    expect(sourceA.inputs).toEqual(["A only", "A and B"]);
+    expect(sourceB.inputs).toEqual(["A and B"]);
+
+    await controller.dispose();
+  });
+
   it("creates a Reasoning, Tool and AI Error response for cleanup controls", async () => {
     const controller = createBeSingleRuntime({
       websocketUrl: "ws://localhost:1/demo-error-scenario",

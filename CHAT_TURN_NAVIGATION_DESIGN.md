@@ -1247,6 +1247,8 @@ Workbench Plugin Host 可以订阅 Runtime 的公共状态并向插件投影稳�
 
 ### 19.14 分阶段实施建议
 
+本节阶段聚焦远程 Workbench Plugin Host；用户配置、Agent/Skill/MCP 目录和 Composer `/` 入口作为同一扩展体系的上层阶段，见第 20.4 节。两条实施线共用 Plugin Manifest 与权限边界，但不要求 UI POC 等待远程加载器完成。
+
 第一阶段：
 
 - 定义 `plugin.json`、`apiVersion` 和 Plugin SDK types。
@@ -1283,3 +1285,90 @@ Runtime Config
 ```
 
 业务方仍然可以使用完整的 SDK 主动注册组件、上报 AI context、发送消息和监听公共状态，但其 UI 构建、依赖和部署完全独立。未来如果将 ESM loader 替换为 Module Federation，上层 Manifest、Plugin SDK、Renderer 和 AI 交互协议可以保持不变。
+
+## 20. 统一扩展目录、可配置 Agent 与 Composer 调用
+
+> 设计补充：2026-09-26。承接第 19 节的 Workbench Plugin Host，不替代 Chat Runtime，也不把 Agent、Skill、MCP 和 UI Plugin 合并成同一种执行对象。
+
+### 20.1 层级与职责
+
+```text
+应用 / 用户配置
+  └─ Extension Catalog（安装、启停、权限、版本、可见性）
+       ├─ Agent Definition（Prompt + Skill/MCP/Plugin 引用）
+       ├─ Skill Definition（工作流说明）
+       ├─ MCP Connection（服务端点与工具目录的配置）
+       └─ Plugin Manifest（第 19 节的 Workbench/UI 扩展包）
+              └─ Renderer / Workbench Tab / scoped Plugin API
+
+Composer `/` → Command Projection → Invocation Controller
+                                  ├─ 选择 Agent 配置
+                                  ├─ 选择 Skill 工作流
+                                  ├─ 选择 MCP 能力
+                                  └─ 打开 / 调用 Plugin 能力
+
+Invocation Controller → 既有 CompareChatRuntime / Queue
+                      → 未来的 BE Agent Orchestrator、MCP Gateway、Plugin Host
+```
+
+Plugin 是安装与生命周期单位，Skill 是可复用工作流，Agent 是执行配置，MCP 是外部工具连接，`/` 是入口和选择器。同一个 Plugin 将来可以贡献多个 Skill、MCP 工具、Renderer 或 Command，但这些能力在目录中仍保留独立类型。宿主命令也可参与 `/` 列表，不能假定每个命令都是一条普通聊天消息。
+
+第 19 节的远程 Plugin Manifest 与 Renderer 协议保持不变；本节只在其上方增加目录、用户配置和调用投影。远程 ESM 的加载仍受第 19.12 节的信任与来源约束；用户输入一个 Manifest URL 并不等于自动执行远程代码。
+
+### 20.2 三层实现边界
+
+```text
+UI：目录列表 / 类型表单 / Agent 引用选择 / Tiptap Composer / Slash Menu
+  ↓ 仅使用 POJO 与 Controller 方法
+交互层：ExtensionWorkspace / Command Projection / Invocation Builder
+  ↓ 仅使用 Repository 接口
+数据层：ExtensionRepository（当前 localStorage；未来可替换为 HTTP/DB Adapter）
+```
+
+交互层不直接读取 DOM、Tiptap Document、`localStorage`、MCP 响应或 Plugin Manifest 的原始形状。数据层把来源数据映射成稳定的 POJO。后续 Skill 或 MCP 数据结构变更时，优先调整数据 Adapter 与对应表单，不必改 Slash 路由与 Invocation Controller。所有引用使用稳定 ID，不复制整份 Skill/MCP 对象到 Agent 配置里；删除时清理本地引用，停用的能力不参与 `/` 搜索和调用。
+
+核心 POJO 关系：
+
+```ts
+type ExtensionKind = "agent" | "skill" | "mcp" | "plugin";
+type AgentDefinition = {
+  id: string;
+  kind: "agent";
+  name: string;
+  prompt: string;
+  skillIds: string[];
+  mcpIds: string[];
+  pluginIds: string[];
+};
+type Invocation = {
+  target: { kind: ExtensionKind; id: string };
+  message: string;
+};
+```
+
+正式协议还需增加 `apiVersion`、发布者、权限与认证引用、来源/适用范围、启停状态、命令别名和能力版本。敏感认证信息只保存引用，不放入浏览器 POJO 或聊天消息。当前 POC 不实现认证与网络调用，因此不在示例字段中伪造它们。
+
+### 20.3 Composer 与调用语义
+
+输入 `/` 时，只查询启用能力的 Command Projection；选择结果后，Composer 显示一个类型化引用 Chip。发送时组装 `Invocation` POJO，普通消息文本仍由现有 Queue 发送到 Compare Runtime。未来的执行 Adapter 再根据 `target.kind` 分流：Skill 可附加工作流指令，Agent 可选专用会话或配置，MCP 需服务端工具执行，Plugin 可以打开 Workbench 或提供上下文。当前 POC 不把这些配置注入 BE，也不宣称 MCP/Skill 已执行。
+
+Agent 的 Prompt 与所选 Skill/MCP/Plugin 是配置关系，不改变 Runtime 的 Turn/Branch 结构。一个 Turn 的目标 Source 可以是一个或两个 Agent；不应通过重建 Runtime 来切换 Compare Agent 的第二个 Source，否则会丢失现有会话视图。
+
+### 20.4 本轮 UI POC 与后续计划
+
+本轮新增独立 `/extension-poc` 页面：
+
+- 左侧扩展目录：按 Agent、Skill、MCP、Plugin 分类，新建/编辑/启停/删除，使用浏览器本地存储。
+- 右侧配置面板：Agent 可写 Prompt 并按 ID 关联已定义的 Skill、MCP 与 Plugin；其他类型分别编辑工作流或连接/Manifest 配置。
+- 中间聊天：复用现有 `CompareChatRuntime` 和 `demoRenderer`，Tiptap 输入框固定在底部；`/` 搜索已启用的扩展，选择后显示 Chip，并可查看本次生成的 UI 层 Invocation POJO。
+- Agent B 开关：只影响**后续**发送 Turn 的 `branchIds`；关闭时只请求 Agent A，重新开启时恢复 A/B 并行。历史 Turn 的 Branch 不回写、不隐藏。
+- 聊天请求继续走既有演示 WebSocket；自定义 Agent Prompt、Skill、MCP 和 Plugin 只作为 UI 配置/调用预览，不发送给 BE 执行。
+
+后续阶段按依赖顺序推进：
+
+1. 固定 Catalog/Invocation schema、命令冲突规则与权限边界，并增加独立数据 Adapter。
+2. 将第 19 节 Plugin Manifest/Renderer 注册映射到 Extension Catalog；实现可信 Plugin Host 的生命周期和 Workbench Tab。
+3. 增加 BE Invocation Adapter、Agent 编排与 MCP 工具网关，再接入权限审批、凭据管理和执行结果回传。
+4. 增加版本迁移、跨设备同步、插件来源校验和端到端测试。
+
+此 POC 是 UI 层验证，不是第 19 节远程 Plugin Host 的完整实现。特别是「配置一个 MCP 地址」与「模型真的拥有这个工具」是两件不同的事。

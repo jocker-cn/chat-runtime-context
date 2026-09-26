@@ -1,7 +1,7 @@
 import { capabilityDemoRegistry } from "./chat/demo/capabilityDemoRegistry";
 import type { DemoMarket, FeeResult, MarketBannerProps } from "./chat/demo/capabilityDemo.capabilities";
 import "./chat/demo/capabilityDemo.capabilities";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   CapabilityView,
   ChatTurnNavigationRail,
@@ -36,7 +36,20 @@ import styles from "./App.module.css";
 import { AgUiStatusDemoPage } from "./chat/demo/AgUiStatusDemoPage";
 import { SseDemoPage } from "./chat/demo/SseDemoPage";
 
+const ExtensionPocPage = lazy(() =>
+  import("./chat/demo/extension-poc/ExtensionPocPage").then((module) => ({
+    default: module.ExtensionPocPage,
+  })),
+);
+
 export function App() {
+  if (window.location.pathname === "/extension-poc") {
+    return (
+      <Suspense fallback={<main className="app" aria-busy="true" />}>
+        <ExtensionPocPage />
+      </Suspense>
+    );
+  }
   if (window.location.pathname === "/ag-ui-status-demo") {
     return <AgUiStatusDemoPage />;
   }
@@ -126,6 +139,7 @@ function DemoChats({
           <p className="eyebrow">AG-UI A/B Runtime</p>
           <h1>Two agents, one backend</h1>
           <p className="connection">Backend: {websocketUrl}</p>
+          <p className="connection"><a href="/extension-poc">打开 Extension POC 页面</a></p>
         </header>
         <div className="composer">
           {compareReference ? (
