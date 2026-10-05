@@ -1,0 +1,37 @@
+.library { display: grid; gap: var(--ui-space-5); min-width: 0; padding-bottom: var(--ui-space-6); }
+.library[hidden] { display: none; }
+.library > section:first-child { margin-bottom: 0; }
+.library label { display: grid; gap: var(--ui-space-2); color: var(--ui-text-secondary); font-size: var(--ui-text-sm); }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: var(--ui-space-3); }
+.importButton { display: inline-flex; position: relative; overflow: hidden; align-items: center; justify-content: center; text-align: center; cursor: pointer; }
+.importButton input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.legacy { font-size: var(--ui-text-xs); }
+.invalid { color: var(--ui-danger); }
+.packageEditor { display: grid; grid-template-columns: 168px minmax(0, 1fr); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); overflow: hidden; }
+.files { display: flex; flex-direction: column; gap: var(--ui-space-3); background: var(--ui-sidebar); padding: var(--ui-space-3); min-width: 0; border-right: 1px solid var(--ui-border); }
+.files > strong { display: flex; align-items: center; justify-content: space-between; font-size: var(--ui-text-sm); color: var(--ui-text-secondary); font-weight: var(--ui-weight-medium); }
+.files > strong span { font-size: var(--ui-text-xs); color: var(--ui-text-muted); }
+.fileList { display: flex; flex-direction: column; gap: var(--ui-space-1); max-height: 320px; overflow-y: auto; scrollbar-width: thin; }
+.fileList > button { border-color: transparent; background: transparent; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: var(--ui-space-2); flex: 0 0 auto; }
+.fileList > button[aria-pressed="true"], .fileContent button[aria-selected="true"] { background: var(--ui-selected); color: var(--ui-text); }
+.addFile { display: grid; gap: var(--ui-space-2); padding-top: var(--ui-space-3); border-top: 1px solid var(--ui-border); }
+.fileContent { min-width: 0; background: var(--ui-surface); }
+.fileContent > header { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2); flex-wrap: wrap; padding: var(--ui-space-3) var(--ui-space-4); border-bottom: 1px solid var(--ui-border); font-size: var(--ui-text-sm); }
+.fileContent > header > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fileContent [role="tablist"] { display: flex; gap: var(--ui-space-1); }
+.fileContent [role="tab"] { border-color: transparent; }
+.fileContent .form { display: grid; gap: var(--ui-space-4); margin: var(--ui-space-4); }
+.optionalMetadata { color: var(--ui-text-muted); font-size: var(--ui-text-sm); }
+.optionalMetadata summary { cursor: pointer; }
+.optionalMetadata > div { margin-top: var(--ui-space-3); }
+.fileContent .source { display: block; border: 0; border-radius: 0; padding: var(--ui-space-4); font-family: var(--ui-font-mono); font-size: var(--ui-text-sm); min-height: 400px; tab-size: 2; }
+.hint { color: var(--ui-text-muted); font-size: var(--ui-text-sm); line-height: var(--ui-leading-relaxed); margin: 0; }
+.fileContent > .hint { padding: var(--ui-space-4); }
+.diagnostics { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); padding: var(--ui-space-4); background: var(--ui-surface-subtle); font-size: var(--ui-text-sm); line-height: var(--ui-leading-relaxed); }
+.diagnostics strong { font-weight: var(--ui-weight-medium); }
+.diagnostics p, .diagnostics ul { margin-bottom: 0; color: var(--ui-text-muted); }
+.diagnostics li[data-severity="error"] { color: var(--ui-danger); }
+.diagnostics li[data-severity="warning"] { color: var(--ui-warning); }
+.revisions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ui-space-2); }
+@media (max-width: 1150px) { .packageEditor { grid-template-columns: minmax(0, 1fr); } .files { border-right: 0; border-bottom: 1px solid var(--ui-border); } .fileList { flex-direction: row; max-height: 120px; flex-wrap: wrap; } .addFile { grid-template-columns: minmax(140px, 1fr) auto auto; align-items: center; } }
+@media (max-width: 700px) { .addFile { grid-template-columns: minmax(0, 1fr); } }

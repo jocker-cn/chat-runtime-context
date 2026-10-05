@@ -12,7 +12,10 @@ export class ExtensionWorkspace {
   private catalog: ExtensionCatalog;
   private readonly listeners = new Set<() => void>();
 
-  constructor(private readonly repository: ExtensionRepository) {
+  constructor(
+    private readonly repository: ExtensionRepository,
+    private readonly getPublishedSkills?: () => readonly { id: string; enabled: boolean }[],
+  ) {
     this.catalog = repository.load();
   }
 
@@ -97,9 +100,9 @@ export class ExtensionWorkspace {
   private resolveAgent(agent: AgentExtension) {
     const available = (kind: ExtensionKind) =>
       new Set(
-        this.catalog.items
+        (kind === "skill" && this.getPublishedSkills ? this.getPublishedSkills() : this.catalog.items
           .filter((item) => item.enabled && item.kind === kind)
-          .map((item) => item.id),
+        ).filter((item) => item.enabled).map((item) => item.id),
       );
     const skills = available("skill");
     const mcps = available("mcp");
@@ -120,7 +123,10 @@ export class ExtensionWorkspace {
     ];
     for (const [kind, ids] of expected) {
       for (const id of ids) {
-        if (!this.catalog.items.some((item) => item.id === id && item.kind === kind)) {
+        const exists = kind === "skill" && this.getPublishedSkills
+          ? this.getPublishedSkills().some((item) => item.id === id)
+          : this.catalog.items.some((item) => item.id === id && item.kind === kind);
+        if (!exists) {
           throw new Error(`找不到 ${kind} 引用：${id}`);
         }
       }

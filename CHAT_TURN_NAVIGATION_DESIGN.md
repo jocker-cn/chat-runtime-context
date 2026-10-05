@@ -1350,7 +1350,11 @@ type Invocation = {
 
 ### 20.3 Composer 与调用语义
 
-输入 `/` 时，只查询启用能力的 Command Projection；选择结果后，Composer 显示一个类型化引用 Chip。发送时组装 `Invocation` POJO，普通消息文本仍由现有 Queue 发送到 Compare Runtime。未来的执行 Adapter 再根据 `target.kind` 分流：Skill 可附加工作流指令，Agent 可选专用会话或配置，MCP 需服务端工具执行，Plugin 可以打开 Workbench 或提供上下文。当前 POC 不把这些配置注入 BE，也不宣称 MCP/Skill 已执行。
+本段描述现有 POC 行为；2026-10-02 新增的独立工具机制见第 20.5 节。输入框已接入第 20.9 节的两级菜单展示，既有引用/预览/提交行为暂不迁移；完整迁移后选择行为由工具决定，不再默认插入引用或展开预览。
+
+输入 `/` 时，先展示分类名称和描述；进入分类后只列出启用的具体能力。选择具体条目后，Composer 在 Tiptap 文档内插入可点击的类型化引用节点，而不是在输入框外单独显示 Chip。引用节点保留完整 `kind/id/name`，可见文本如 `skills:发布风险检…`：名称最多展示 5 个字符，超出用省略号表示。节点不是普通消息文本，发送时由节点 ID 组装 `Invocation` POJO，用户输入的正文仍由现有 Queue 发送到 Compare Runtime。选择节点后仅在该能力有可预览内容时，在输入框上方展示内容；关闭预览后可点击节点重新打开。未来节点点击可以路由到 Workbench 右侧内容、专用面板或其他宿主动作，当前 POC 不预先固定这些交互。
+
+未来的执行 Adapter 再根据 `target.kind` 分流：Skill 可附加工作流指令，Agent 可选专用会话或配置，MCP 需服务端工具执行，Plugin 可以打开 Workbench 或提供上下文。当前 POC 不把这些配置注入 BE，也不宣称 MCP/Skill 已执行。
 
 Agent 的 Prompt 与所选 Skill/MCP/Plugin 是配置关系，不改变 Runtime 的 Turn/Branch 结构。一个 Turn 的目标 Source 可以是一个或两个 Agent；不应通过重建 Runtime 来切换 Compare Agent 的第二个 Source，否则会丢失现有会话视图。
 
@@ -1358,17 +1362,146 @@ Agent 的 Prompt 与所选 Skill/MCP/Plugin 是配置关系，不改变 Runtime 
 
 本轮新增独立 `/extension-poc` 页面：
 
-- 左侧扩展目录：按 Agent、Skill、MCP、Plugin 分类，新建/编辑/启停/删除，使用浏览器本地存储。
-- 右侧配置面板：Agent 可写 Prompt 并按 ID 关联已定义的 Skill、MCP 与 Plugin；其他类型分别编辑工作流或连接/Manifest 配置。
-- 中间聊天：复用现有 `CompareChatRuntime` 和 `demoRenderer`，Tiptap 输入框固定在底部；`/` 搜索已启用的扩展，选择后显示 Chip，并可查看本次生成的 UI 层 Invocation POJO。
+- 固定左侧导航：上方是自定义 Agent、Skill、MCP、Plugin 功能入口，下方是独立滚动的聊天历史；点击后切换右侧内容区，不把配置面板固定在聊天旁边。
+- 右侧功能页面：按类型展示目录与新建/编辑/启停/删除表单，使用浏览器本地存储。Agent 可写 Prompt 并按 ID 关联已定义的 Skill、MCP 与 Plugin；其他类型分别编辑工作流或连接/Manifest 配置。
+- 右侧聊天页面：复用现有 `CompareChatRuntime` 和 `demoRenderer`，Tiptap 输入框固定在底部；`/` 使用公共两级菜单展示分类和已启用条目，选择具体条目后保留高亮引用与有内容时展开预览的行为。独立 `core/tools` 的完整业务注册/调用迁移仍在后续阶段。
 - Agent B 开关：只影响**后续**发送 Turn 的 `branchIds`；关闭时只请求 Agent A，重新开启时恢复 A/B 并行。历史 Turn 的 Branch 不回写、不隐藏。
 - 聊天请求继续走既有演示 WebSocket；自定义 Agent Prompt、Skill、MCP 和 Plugin 只作为 UI 配置/调用预览，不发送给 BE 执行。
 
 后续阶段按依赖顺序推进：
 
-1. 固定 Catalog/Invocation schema、命令冲突规则与权限边界，并增加独立数据 Adapter。
-2. 将第 19 节 Plugin Manifest/Renderer 注册映射到 Extension Catalog；实现可信 Plugin Host 的生命周期和 Workbench Tab。
-3. 增加 BE Invocation Adapter、Agent 编排与 MCP 工具网关，再接入权限审批、凭据管理和执行结果回传。
-4. 增加版本迁移、跨设备同步、插件来源校验和端到端测试。
+1. **当前阶段：独立工具基础机制。** 在 `src/core/tools/` 实现 Registry、React 接入、独立列表展示与可选公共 Dialog；使用独立测试验证，不迁移现有 input。
+2. **下一阶段：正式领域模型与业务迁移。** 先按第 21 节确定 Agent/Skill/MCP 标准映射、文件包、版本及异步 Repository，再逐步迁移入口。`/` 只负责触发、查询、关闭选择菜单和调用工具；Agent/Skill/MCP/Plugin 功能模块自己注册行为。Tiptap 通过输入框能力 Adapter 接入，不成为 Registry 的依赖。
+3. 将第 19 节 Plugin Manifest/Renderer 注册映射到 Extension Catalog；实现可信 Plugin Host 的生命周期和 Workbench Tab。Workbench 是可选宿主能力，不是工具调用的前置依赖。
+4. 增加 BE Invocation Adapter、Agent 编排与 MCP 工具网关，再接入权限审批、凭据管理和执行结果回传。
+5. 增加版本迁移、跨设备同步、插件来源校验和端到端测试。
 
 此 POC 是 UI 层验证，不是第 19 节远程 Plugin Host 的完整实现。特别是「配置一个 MCP 地址」与「模型真的拥有这个工具」是两件不同的事。
+
+### 20.5 独立工具注册与调用机制
+
+> 设计更新：2026-10-02。本阶段只实现公共机制；现有输入框保持原有交互，后续单独迁移。
+
+工具入口不是 Composer 的子功能，Registry 不依赖输入框、ChatRuntime 或弹窗。工具由功能模块、组件或未来的插件独立注册。`/`、固定列表、搜索面板和快捷键都可以成为调用入口。
+
+```text
+Repository / Adapter → 工具描述 POJO
+功能模块 / 插件      → ToolRegistry（描述 + 运行时行为）
+                          ↑
+入口：/、列表、快捷键 → 查询 / 调用
+                          ↓
+                      工具自己的业务逻辑
+                          ├─ 可选输入框 Adapter
+                          ├─ 可选 ToolPresentation Dialog
+                          ├─ 自己已有的业务界面
+                          └─ 未来可选 Workbench API
+```
+
+`ToolDefinition` 只包含 `id/name/description/group/keywords` 等可序列化元数据。`ToolRegistration` 绑定 `onSelect` 和可选 `onReferenceClick`，不写入 Repository。注册 ID 唯一，冲突立即报错，建议使用 `module.action`；一个 Plugin/Agent 可以贡献多个入口，不要求目录记录与工具一一对应。
+
+调用上下文使用应用定义的 TypeScript 能力接口，入口按场景提供能力。没有输入框的入口不必提供 Composer；工具检查自己的可选能力并决定行为。Registry 不引入固定的 Agent/Skill/MCP 类型分支，也不强制工具执行后插入文本、创建引用或打开面板。
+
+现有 `core/capability` 负责 market/version 下的实现解析，独立工具机制负责用户可发现和可调用的入口；两者职责不同，不复制其版本解析逻辑。
+
+### 20.6 列表展示和公共 Dialog 边界
+
+`ToolList` 是纯展示组件，只消费工具描述和选择回调。它可以出现在弹窗中，也可以直接放在页面中；调用者也可以使用自定义列表，复用同一 Registry 和调用 Hook。
+
+工具选择菜单与选择后的业务界面是两个过程：入口先关闭选择菜单（未来 `/` 入口同时清理 `/查询词`），然后调用工具。工具可以直接执行、插入引用、打开配置弹窗，或使用自己的业务 UI。
+
+公共 `ToolPresentationProvider` 提供可选 Dialog 容器：负责遮罩、Esc、焦点和滚动恢复。工具通过 `openDialog({ title, render: ({ close }) => <FeaturePanel /> })` 提供自己的内容组件。业务组件负责表单、确认按钮、校验和后续动作；公共层不假设所有工具都是确认/取消表单。
+
+React 第一版直接使用组件组合，不增加 rendererId/组件注册表。`render`、JSX 和弹窗句柄都属于运行时 UI 对象，不属于描述 POJO。将来的远程 Plugin Host 可以通过自己的 Adapter 接入，不把远程模块协议提前塞进本地 Dialog。
+
+第一版仅有一个活动 Dialog，新请求替换并重置旧内容；旧句柄不会关闭新 Dialog。不实现堆叠弹窗，也不代替工具处理业务请求取消。其他展示形式以后通过独立 Host/宿主能力扩展。
+
+### 20.7 React 接入与维护方式
+
+公共实现使用函数式 TypeScript 注册表与 React Hook，不要求类继承、装饰器、依赖注入容器或全局单例：
+
+- 应用在模块顶层调用 `createToolReactBindings<AppCapabilities>()`，得到类型化 Provider 与 Hooks；每个工作区创建独立 Registry。
+- 功能组件调用 `useRegisterTool({ definition, onSelect, onReferenceClick })`。支持内联对象/回调，使用最新提交的组件状态，只有描述变更才重新注册；卸载自动清理。
+- 列表通过 `useTools(query)` 订阅缓存的描述快照，通过 `useToolLauncher(context)` 调用工具。调用错误由入口或业务界面处理。
+- 非 React 模块直接调用 `registry.register()`，在模块卸载时调用返回的注销函数。
+- 引用点击与首次选择是独立行为。展示引用与提交数据也独立，后续输入框 Adapter 负责结构化提交，不以高亮显示文本充当执行协议。
+
+代码和接入示例位于 `src/core/tools/README.md`。独立回归覆盖注册冲突、快照稳定性、重复清理、React StrictMode、最新回调、固定列表/弹窗共用工具以及 Dialog 关闭和焦点行为。本阶段不修改现有 `/extension-poc` 输入框，也不增加 BE 或 Workbench 实现。
+
+### 20.8 POC 固定导航与聊天历史布局
+
+> 页面更新：2026-10-02。先调整页面外壳，不将输入框迁移与布局修改混在一起。
+
+左侧约占桌面页面 1/4 宽度，设置最小/最大宽度；侧栏保持固定，不随右侧内容滚动。上方功能入口始终可见，下面聊天历史独立纵向滚动，标题单行省略。
+
+右侧内容区切换为两类页面：
+
+- 扩展管理页：对应类型的目录和配置表单；支持返回当前聊天。
+- 聊天页：对应会话的消息区、Agent B 开关和底部 Tiptap 输入框。
+
+`chatSessionModel.ts` 只维护会话 ID、标题与示例历史标记等 POJO。新建会话使用独立 threadId，并从空消息开始；首条发送消息作为标题。默认示例会话保留原有发布风险历史。
+
+每个已打开会话拥有独立 `ChatSession` 组件与 Compare Runtime，切换功能页或聊天时保持挂载，仅隐藏非当前页面，保留消息、输入草稿、引用和 Agent B 设置。离开 POC 页面时统一由组件生命周期释放各自 Runtime。不开启额外请求，不改变两个 Agent 的调用协议。
+
+本轮聊天历史仅保留在当前页面内存，刷新后回到示例会话；不实现聊天数据持久化、BE 历史查询或跨设备同步。扩展配置的既有 localStorage 存储保持不变，后续聊天数据源可以单独接入。
+
+### 20.9 两级工具菜单与业务详情贡献
+
+> 菜单更新：2026-10-02。接入独立展示部分，不同时迁移输入框的执行协议。
+
+一级入口按分类展示名称、描述和可用条目数量，例如 Agent、Skill、MCP、Plugin；不会将多个 MCP 配置平铺到根列表。进入分类后展示具体条目，提供独立搜索、返回和空状态。只有选择具体条目才关闭菜单并调用业务行为；打开分类不插入输入框引用。
+
+公共实现位于 `src/core/tools/`：
+
+- `ToolMenuEntry` 区分 `action`（直接执行）与 `group`（进入二级），允许两种入口混用，不强制每个工具都有子项。
+- `group.definition/items` 是描述 POJO；`renderItem/onSelect/empty` 是业务提供的运行时展示与行为，不持久化。
+- `useToolMenu` 管理当前分类 ID、根搜索和二级搜索、活动条目及导航；分类变更后读取最新条目/回调，分类消失时返回根列表。
+- `ToolMenu` 只负责菜单展示；外部入口决定弹窗位置，也可使用自己的列表/弹窗复用 Controller。公共层不识别 Agent、Skill 或 MCP 字段。
+- `renderItem(item)` 自定义可选行内部内容；未提供时使用名称/描述默认展示。业务数据结构变动只调整投影和详情组件，不修改导航逻辑。
+
+根查询可以命中分类或子项信息，但仍展示分类入口。进入分类时，命中分类名称的查询不继续过滤其子项；命中子项的查询保留为二级过滤条件。上下键和 Enter 支持选择，左右键进入/返回，Esc 在二级返回、在一级关闭。菜单搜索输入保留左键移动光标；条目过多时在菜单内部滚动，宽度仍与输入框一致。
+
+POC 的业务贡献位于 `extensionToolMenu.tsx`：MCP 展示服务名称/描述/Endpoint，Skill 展示指令摘要，Agent 展示 Prompt 和关联数量，Plugin 展示 Manifest 地址。这里只显示本地配置记录，不增加服务端 MCP tools 发现、三级菜单、远程加载或 BE 执行。
+
+分类不必是 Registry 中可执行的工具。后续业务迁移可从 `useTools()` 投影子项，在选择回调中调用 `useToolLauncher()`；分类导航层无需修改。当前页面选择具体条目后仍沿用原有引用、预览和发送处理，完整注册行为与 Composer 能力 Adapter 接入继续按第 20.4 节推进。
+
+## 21. Agent / Skill / MCP 正式领域设计
+
+> 设计更新：2026-10-02。详细方案见 [AGENT_SKILL_MCP_DESIGN.md](./AGENT_SKILL_MCP_DESIGN.md)。本节为正式设计提案，不表示现有 POC 已完成迁移或 BE 已支持执行。
+
+三者保留不同内容模型：Agent 是模型/指令/能力/策略组合配置；Skill 以标准 `SKILL.md` 文件包为内容真源，解析索引可重建；MCP 拆为连接定义、当前主体的授权绑定和发现结果缓存。不存在一份将所有产品 Agent、Skill 和 MCP 保存结构合并起来的通用 AI JSON 标准。
+
+统一管理层引入稳定 ID、展示名与机器名分离、scope/owner、草稿、不可变发布 revision、启用绑定和并发 ETag。Agent 发布引用固定 Skill/MCP 的 ID + revision；发布新版不自动改变历史与已发布 Agent。凭据只在后续 BE 私密存储中维护，UI 配置不保存或回传秘密。
+
+前端正式存储建议异步 Repository + IndexedDB；未来 BE 使用授权后的目录/版本数据与私有文件存储。Controller 保留稳定订阅快照，数据加载与保存异步化；菜单使用轻量摘要、详情按需读取。业务领域位于独立 `src/features/ai-config/`，不把标准字段、文件包或 MCP Client 塞进 `core/tools`、ChatRuntimeSnapshot 或 Workbench Renderer。
+
+实施顺序调整为：领域 schema/校验/Repository → 完整 Skill 主文件及包 → MCP 配置/授权/能力状态 → Agent 组合与业务注册迁移 → BE Resolver/真实运行。Workbench Plugin Host 仍按第 19 节独立推进，工具选择不要求接入 Workbench。
+
+旧 POC 配置只做一次性显式迁移成草稿并给出报告，不长期维持两套同步对象；当前页面与 BE 逻辑本轮保持不变。详细文件包含各模型、标准示例、存储布局、接口建议、Compare A/B 计划、权限与安全、迁移和验收清单。
+
+### 21.1 领域结构与 Skill 文件包实施
+
+> 实施更新：2026-10-02。以上“页面保持不变”指设计提案时的状态；本阶段已更新新工作台的 Skill 页，BE 未改。
+
+`src/features/ai-config/` 按 domain / adapters / data / controllers / ui 分层。领域定义版本化 POJO 与运行时校验；异步 Repository 支持 IndexedDB 和测试内存实现。Skill 配置只存文件清单及 SHA-256 Blob 引用，草稿与不可变发布版本独立，ETag 防止覆盖。
+
+Skill 页支持 SKILL.md 表单/源码、配套文件和附件、Markdown/单根 ZIP 导入、完整包导出、诊断、保存草稿、校验发布、历史版本只读查看、停用及归档。脚本不执行；旧 POC 自定义 Skill 只能显式导入为新草稿，完整迁移报告/版本 diff 尚未完成。
+
+菜单只读已发布可用 Skill 的轻量投影；引用节点与 UI invocation 带固定 revision，选择后才读取主文件预览。Compare 多 Agent、现有引用和会话切换保持；Skill 编辑器在功能切换时保持挂载，保留未保存内容。Agent/MCP 当前仍是旧 POC 页面，正式 UI/执行按后续阶段推进。
+
+### 21.2 中性主题与集中 Tokens
+
+`src/theme/tokens.css` 集中维护调色板、语义颜色、字体/字号、间距、圆角、阴影、焦点和禁用状态。页面、Skill 编辑器、输入框、两级工具菜单和工具弹窗只引用语义 tokens，业务 CSS 保留布局与尺寸限制，不分散维护颜色副本。
+
+新工作台采用 Codex 风格的灰白表面、灰色选中态、深色主按钮与蓝色引用高亮。复用的原 demo 消息卡片仅在新页面根节点范围内覆写，不改变原 demo 配色。后续主题调整集中修改 tokens；新增功能复用这一入口。
+
+### 21.3 管理页面布局收敛
+
+> UI 更新：2026-10-03。只重做页面布局与编辑交互，不改变领域结构、存储协议或 BE 行为；Agent/MCP/Plugin 仍使用原 POC 配置字段，正式领域编辑器按后续阶段推进。
+
+四类页面移除右侧重复的 EXTENSION SETTINGS、大标题、技术说明横幅和返回聊天按钮，统一为“可搜索目录 + 编辑区”。由纯展示组件 `src/features/ai-config/ui/DefinitionManager.tsx` 负责目录、独立滚动区和固定操作栏，具体数据、校验与操作仍由各业务组件提供。
+
+Skill 的“内容编辑”聚焦基本信息、文件包、主文件表单/源码和诊断；可选元数据折叠。“版本与设置”集中管理包根目录、历史只读版本、启用状态和归档。区域切换保留未保存编辑，保存/发布按钮始终可见。
+
+Agent 分为基本信息、行为指令和关联能力；MCP 与 Plugin 分别展示连接声明与清单地址。目录搜索不替换当前编辑对象，切换 POC 配置前确认未保存修改，保存成功提供反馈。通过左侧历史切回聊天，已有 Compare Runtime 和输入草稿继续保留。
+
+窄屏下目录移到编辑区上方并限制列表高度；长目录和正文分别滚动。共享管理样式与业务内部样式继续引用统一 tokens，不增加各页面独立配色。

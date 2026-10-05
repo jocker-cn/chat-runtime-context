@@ -1,0 +1,47 @@
+.backdrop {
+  align-items: center;
+  background: var(--ui-backdrop);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--ui-space-6);
+  position: fixed;
+  z-index: 1000;
+}
+
+.dialog {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-xl);
+  box-shadow: var(--ui-shadow-dialog);
+  color: var(--ui-text);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 48px);
+  max-width: 100%;
+  outline: none;
+  width: 560px;
+}
+
+.dialog[data-size="small"] { width: 380px; }
+.dialog[data-size="large"] { width: 800px; }
+
+.header {
+  align-items: center;
+  border-bottom: 1px solid var(--ui-border);
+  display: flex;
+  gap: var(--ui-space-4);
+  justify-content: space-between;
+  padding: var(--ui-space-4) var(--ui-space-5);
+}
+
+.header h2 { font-size: var(--ui-text-title); margin: 0; }
+.header button {
+  background: transparent;
+  border: 0;
+  color: var(--ui-text-secondary);
+  cursor: pointer;
+  font-size: var(--ui-text-xl);
+}
+
+.content { min-height: 0; overflow: auto; padding: var(--ui-space-5); }

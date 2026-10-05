@@ -87,6 +87,8 @@ export function createDemoRuntime() {
 export interface BeComparisonRuntimeOptions {
   websocketUrl?: string;
   threadId?: string;
+  /** New POC conversations start empty; existing demos retain their seeded history. */
+  includeDemoHistory?: boolean;
 }
 
 export interface DemoRuntimeController<
@@ -146,9 +148,10 @@ export type BeSingleRuntimeController = DemoRuntimeController<
 export function createBeComparisonRuntime({
   websocketUrl = "ws://localhost:8080/ws/copilot",
   threadId = "ab-chat",
+  includeDemoHistory = true,
 }: BeComparisonRuntimeOptions = {}): BeComparisonRuntimeController {
   let secondaryAgentEnabled = true;
-  const sourceAHistoryMessages = createSourceAMockHistory();
+  const sourceAHistoryMessages = includeDemoHistory ? createSourceAMockHistory() : [];
   const agentA = createSocketAgent({
     websocketUrl,
     agentId: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,

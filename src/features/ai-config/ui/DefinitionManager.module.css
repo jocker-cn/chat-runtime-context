@@ -1,0 +1,57 @@
+.manager { display: grid; grid-template-columns: 220px minmax(0, 1fr); height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--ui-surface); color: var(--ui-text); font-family: var(--ui-font); }
+.manager button, .button { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface); color: var(--ui-text-secondary); cursor: pointer; font: inherit; font-size: var(--ui-text-sm); padding: var(--ui-space-2) var(--ui-space-3); }
+.manager button:hover, .button:hover { background: var(--ui-hover); }
+.manager button:disabled { cursor: default; opacity: var(--ui-opacity-disabled); }
+.manager button:focus-visible, .manager input:focus-visible, .manager textarea:focus-visible, .manager summary:focus-visible, .button:focus-within { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.manager input:not([type="checkbox"]), .manager textarea { min-width: 0; box-sizing: border-box; width: 100%; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); padding: var(--ui-space-2) var(--ui-space-3); background: var(--ui-surface); color: var(--ui-text); font: inherit; font-size: var(--ui-text-md); }
+.manager input::placeholder, .manager textarea::placeholder { color: var(--ui-text-placeholder); }
+.manager textarea { resize: vertical; line-height: var(--ui-leading-relaxed); }
+.manager input[type="checkbox"] { accent-color: var(--ui-primary); }
+.manager fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.manager .primary { background: var(--ui-primary); border-color: var(--ui-primary); color: var(--ui-on-primary); }
+.manager .primary:hover { opacity: var(--ui-opacity-hover); }
+.manager .danger { color: var(--ui-danger); }
+.directory { display: flex; flex-direction: column; gap: var(--ui-space-3); min-width: 0; min-height: 0; padding: var(--ui-space-5) var(--ui-space-4); border-right: 1px solid var(--ui-border); background: var(--ui-surface-subtle); }
+.directory > header { display: flex; align-items: center; gap: var(--ui-space-2); }
+.directory h2 { font-size: var(--ui-text-base); font-weight: var(--ui-weight-semibold); margin: 0; }
+.count { border-radius: var(--ui-radius-sm); padding: var(--ui-space-0-5) var(--ui-space-2); background: var(--ui-hover); color: var(--ui-text-muted); font-size: var(--ui-text-xs); }
+.directoryTools { display: grid; gap: var(--ui-space-2); }
+.search input { width: 100%; }
+.entries { display: flex; flex-direction: column; gap: var(--ui-space-1); overflow-y: auto; overflow-x: hidden; min-height: 0; flex: 1; scrollbar-width: thin; }
+.manager .entry { display: grid; gap: var(--ui-space-1); width: 100%; text-align: left; border-color: transparent; background: transparent; padding: var(--ui-space-3); }
+.manager .entry[aria-pressed="true"] { background: var(--ui-selected); border-color: var(--ui-border); }
+.entry strong, .entry small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry strong { color: var(--ui-text); font-size: var(--ui-text-md); font-weight: var(--ui-weight-medium); }
+.entry small { color: var(--ui-text-muted); font-size: var(--ui-text-xs); }
+.directoryFooter { display: grid; gap: var(--ui-space-3); border-top: 1px solid var(--ui-border); padding-top: var(--ui-space-3); font-size: var(--ui-text-xs); color: var(--ui-text-muted); }
+.directoryFooter details { min-width: 0; }
+.directoryFooter summary { cursor: pointer; }
+.directoryFooter details button { width: 100%; margin-top: var(--ui-space-2); }
+.empty { color: var(--ui-text-muted); font-size: var(--ui-text-sm); line-height: var(--ui-leading-relaxed); padding: var(--ui-space-3); margin: 0; }
+.editor { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--ui-space-3); padding: var(--ui-space-4) var(--ui-space-6); border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); flex: 0 0 auto; }
+.title { min-width: 0; flex: 1 1 160px; }
+.title h2 { margin: 0 0 var(--ui-space-1); font-size: var(--ui-text-title); font-weight: var(--ui-weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status { color: var(--ui-text-muted); font-size: var(--ui-text-xs); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); }
+.editorBody { flex: 1; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; padding: var(--ui-space-6); scrollbar-width: thin; }
+.section { display: grid; gap: var(--ui-space-4); margin-bottom: var(--ui-space-6); }
+.section > h3 { margin: 0; font-size: var(--ui-text-md); font-weight: var(--ui-weight-semibold); }
+.hint { color: var(--ui-text-muted); font-size: var(--ui-text-sm); line-height: var(--ui-leading-relaxed); margin: 0; }
+.tabs { display: flex; gap: var(--ui-space-2); border-bottom: 1px solid var(--ui-border); padding-bottom: var(--ui-space-3); margin-bottom: var(--ui-space-5); }
+.manager .tabs button { border-color: transparent; }
+.manager .tabs button[aria-pressed="true"] { background: var(--ui-selected); color: var(--ui-text); }
+.feedback { border-radius: var(--ui-radius-md); padding: var(--ui-space-3); margin: 0 0 var(--ui-space-4); background: var(--ui-surface-subtle); font-size: var(--ui-text-sm); line-height: var(--ui-leading-relaxed); color: var(--ui-text-secondary); }
+.error { background: var(--ui-danger-bg); color: var(--ui-danger); }
+.error button { margin-left: var(--ui-space-3); }
+@media (max-width: 900px) {
+  .manager { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .directory { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--ui-space-2); padding: var(--ui-space-3) var(--ui-space-4); border-right: 0; border-bottom: 1px solid var(--ui-border); }
+  .directoryTools { display: flex; }
+  .search, .entries, .directoryFooter { grid-column: 1 / -1; }
+  .entries { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); max-height: 120px; }
+  .directoryFooter { border-top: 0; padding-top: 0; }
+  .toolbar { padding: var(--ui-space-3) var(--ui-space-4); }
+  .editorBody { padding: var(--ui-space-4); }
+}
+@media (max-width: 600px) { .directory { grid-template-columns: minmax(0, 1fr); } .directoryTools { flex-wrap: wrap; } }

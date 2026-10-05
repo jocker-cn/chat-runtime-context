@@ -19,6 +19,7 @@ export interface AgentExtension extends ExtensionBase {
 export interface SkillExtension extends ExtensionBase {
   kind: "skill";
   instructions: string;
+  revision?: number;
 }
 
 export interface McpExtension extends ExtensionBase {
@@ -47,11 +48,12 @@ export interface ExtensionChoice {
   kind: ExtensionKind;
   name: string;
   description: string;
+  revision?: number;
 }
 
 /** UI-to-runtime envelope. A backend adapter may consume this later. */
 export interface ExtensionInvocation {
-  target: { kind: ExtensionKind; id: string };
+  target: { kind: ExtensionKind; id: string; revision?: number };
   message: string;
   agent?: {
     prompt: string;
