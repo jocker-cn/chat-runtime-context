@@ -26,7 +26,7 @@ export function ChatTurnNavigationRail({
   tooltipClassName,
   ariaLabel = "User messages",
 }: ChatTurnNavigationRailProps) {
-  const { store, getPreview, subscribePreview } = navigation;
+  const { store, getPreview, subscribePreview, viewportAdapter } = navigation;
   const tooltipId = useId();
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [previewState, setPreviewState] = useState<{
@@ -40,6 +40,70 @@ export function ChatTurnNavigationRail({
   );
   const previewedItem = items.find((item) => item.id === previewState?.itemId);
   const [, setPreviewRevision] = useState(0);
+  const [visibleTurnIds, setVisibleTurnIds] = useState<ReadonlySet<string>>(() => new Set());
+
+  useEffect(() => {
+    setVisibleTurnIds(new Set());
+    const viewport = viewportAdapter.getScrollElement();
+    if (!viewport || items.length === 0 || typeof IntersectionObserver === "undefined") return;
+
+    const turnIds = new Set(items.map((item) => item.turnId));
+    const observed = new Map<Element, boolean>();
+    let active = true;
+    const publish = () => {
+      const next = new Set<string>();
+      for (const [element, visible] of observed) {
+        if (visible) next.add(element.getAttribute("data-turn-id")!);
+      }
+      setVisibleTurnIds((current) => current.size === next.size &&
+        [...next].every((id) => current.has(id)) ? current : next);
+    };
+    const observer = new IntersectionObserver((entries) => {
+      if (!active) return;
+      for (const entry of entries) {
+        if (observed.has(entry.target)) {
+          observed.set(entry.target, entry.isIntersecting &&
+            entry.intersectionRect.width > 0 && entry.intersectionRect.height > 0);
+        }
+      }
+      publish();
+    }, { root: viewport, threshold: [0, 0.000001] });
+
+    const syncElements = () => {
+      const elements = new Set(
+        [...viewport.querySelectorAll("[data-turn-id]")]
+          .filter((element) => turnIds.has(element.getAttribute("data-turn-id")!)),
+      );
+      for (const element of observed.keys()) {
+        if (!elements.has(element)) {
+          observer.unobserve(element);
+          observed.delete(element);
+        }
+      }
+      for (const element of elements) {
+        if (!observed.has(element)) {
+          observed.set(element, false);
+          observer.observe(element);
+        }
+      }
+      publish();
+    };
+    syncElements();
+    const mutations = new MutationObserver((records) => {
+      // Only rescan when Turn containers mount/unmount, not for streamed text.
+      if (records.some((record) => [...record.addedNodes, ...record.removedNodes]
+        .some((node) => node instanceof Element &&
+          (node.matches("[data-turn-id]") || node.querySelector("[data-turn-id]"))))) {
+        syncElements();
+      }
+    });
+    mutations.observe(viewport, { childList: true, subtree: true });
+    return () => {
+      active = false;
+      mutations.disconnect();
+      observer.disconnect();
+    };
+  }, [items, viewportAdapter]);
 
   useEffect(() => {
     if (!previewedItem || !subscribePreview) {
@@ -135,6 +199,8 @@ export function ChatTurnNavigationRail({
             className={markerClassName}
             type="button"
             aria-label={`Jump to user message ${index + 1}`}
+            data-visible={visibleTurnIds.has(item.turnId) ? "true" : undefined}
+            aria-current={visibleTurnIds.has(item.turnId) ? "true" : undefined}
             aria-describedby={
               previewState?.itemId === item.id && preview ? tooltipId : undefined
             }

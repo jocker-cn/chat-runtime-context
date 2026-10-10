@@ -70,10 +70,12 @@ describe("demoRenderer Message references", () => {
     });
     runtimes.push(runtime);
     const chatFromHere = vi.fn();
+    const navigateToMessage = vi.fn();
     const extensions: DemoChatExtensions = Object.assign(
       createChatExtensionStore(),
       {
         chatFromHere,
+        navigateToMessage,
         resolveMessageById: (messageId: string) =>
           findChatMessageById(runtime, messageId),
       },
@@ -90,6 +92,10 @@ describe("demoRenderer Message references", () => {
 
     expect(container.querySelector(".message-card-reference")?.textContent)
       .toBe(referenced.content);
+    expect(container.querySelector(".message-card-assistant")?.getAttribute("data-message-id"))
+      .toBe(referenced.id);
+    fireEvent.click(screen.getByRole("button", { name: "定位引用的原消息" }));
+    expect(navigateToMessage).toHaveBeenCalledWith(referenced.id);
 
     fireEvent.click(screen.getByRole("button", { name: "Chat from here" }));
     expect(chatFromHere).toHaveBeenCalledWith(

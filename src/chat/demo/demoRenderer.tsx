@@ -30,6 +30,7 @@ export interface DemoChatExtensions extends ChatExtensionStore {
     context: MessageRenderContext,
   ) => void;
   resolveMessageById?: (messageId: string) => DemoMessage | undefined;
+  navigateToMessage?: (messageId: string) => void;
 }
 
 export const demoRenderer = createFrameRenderer<DemoMessage>({
@@ -58,7 +59,7 @@ function UserMessageCard({
 }: FrameCardProps<DemoMessage>) {
   const contentId = useId();
   const isError = message.status?.trim()?.toLowerCase() === "error";
-  const { retryUserError, resolveMessageById } = useChatExtensions<DemoChatExtensions>();
+  const { retryUserError, resolveMessageById, navigateToMessage } = useChatExtensions<DemoChatExtensions>();
   const referencedMessage = useMemo(() => {
     console.log(message.id,"1111")
     if (!message.referencedMessageId || !resolveMessageById) {
@@ -83,7 +84,15 @@ function UserMessageCard({
         <strong className="message-card-error-label">Failed to send</strong>
       ) : null}
       {referencedText ? (
-        <div
+        navigateToMessage ? <button
+          type="button"
+          className="message-card-reference message-card-reference-link"
+          title={referencedText}
+          aria-label="定位引用的原消息"
+          onClick={() => navigateToMessage(message.referencedMessageId!)}
+        >
+          {referencedText}
+        </button> : <div
           className="message-card-reference"
           title={referencedText}
         >
@@ -125,6 +134,9 @@ function AiErrorMessageCard({ message }: FrameCardProps<DemoMessage>) {
       <div id={contentId} role="alert">
         {activityErrorText(message)}
       </div>
+      {typeof message.content.thinkingText === "string" && message.content.thinkingText && (
+        <details><summary>失败前的思考内容</summary><div>{message.content.thinkingText}</div></details>
+      )}
     </article>
   );
 }
@@ -140,6 +152,7 @@ function AssistantMessageCard({
   return (
     <article
       className="message-card message-card-assistant"
+      data-message-id={message.id}
       tabIndex={0}
       aria-label="AI response"
       aria-describedby={contentId}

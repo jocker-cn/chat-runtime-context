@@ -38,6 +38,8 @@ export type BackendTransportAgentOptions = {
   description?: string;
   threadId?: string;
   initialMessages?: Message[];
+  /** Convert failures to run-owned error messages before ending the stream. */
+  handleRunErrors?: boolean;
   onDisconnected?: (event: BackendTransportDisconnectEvent) => void;
 };
 
@@ -48,6 +50,7 @@ export type BackendTransportAgentCloseOptions = {
 /** Adapts a custom backend-message transport to the AG-UI Agent contract. */
 export class BackendTransportAgent extends AbstractAgent {
   private readonly transport: BackendTransport;
+  private readonly handleRunErrors: boolean;
   private activeRun?: {
     input: RunAgentInput;
     cancelled: boolean;
@@ -66,6 +69,7 @@ export class BackendTransportAgent extends AbstractAgent {
       initialMessages: options.initialMessages,
     });
     this.transport = transport;
+    this.handleRunErrors = options.handleRunErrors ?? false;
     if (options.onDisconnected) {
       this.onDisconnected = options.onDisconnected;
     }
@@ -120,19 +124,37 @@ export class BackendTransportAgent extends AbstractAgent {
       converter.start().forEach(emit);
       if (subscriber.closed) return;
 
-      const disconnect = this.transport.run(input, {
-        onMessage: (message) => {
-          if (subscriber.closed || run.cancelled) return;
-          const conversion = converter.convert(message);
-          conversion.events.forEach(emit);
-          if (conversion.terminal) {
-            subscriber.complete();
-          }
-        },
-        onError: (error) => subscriber.error(error),
-      });
+      const fail = (error: unknown) => {
+        if (subscriber.closed || run.cancelled) return;
+        if (this.handleRunErrors) {
+          converter.fail(toError(error).message).events.forEach(emit);
+          subscriber.complete();
+        } else {
+          subscriber.error(error);
+        }
+      };
+      let disconnect: (() => void) | undefined;
+      try {
+        disconnect = this.transport.run(input, {
+          onMessage: (message) => {
+            if (subscriber.closed || run.cancelled) return;
+            try {
+              const conversion = this.handleRunErrors && message.event === "error"
+                ? converter.fail(message.error ?? "Backend error.")
+                : converter.convert(message);
+              conversion.events.forEach(emit);
+              if (conversion.terminal) subscriber.complete();
+            } catch (error) {
+              fail(error);
+            }
+          },
+          onError: fail,
+        });
+      } catch (error) {
+        fail(error);
+      }
 
-      return () => disconnect();
+      return () => disconnect?.();
     });
   }
 }

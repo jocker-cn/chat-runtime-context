@@ -55,8 +55,7 @@
 
 .featureNav button,
 .newChatButton,
-.historyItem,
-.backLink {
+.historyItem {
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-md);
   background: transparent;
@@ -70,8 +69,7 @@
 
 .featureNav button,
 .newChatButton,
-.historyItem,
-.backLink {
+.historyItem {
   border-color: transparent;
 }
 
@@ -162,10 +160,6 @@
   padding: 0 var(--ui-space-3);
 }
 
-.backLink {
-  text-decoration: none;
-}
-
 .contentArea {
   height: 100%;
   min-height: 0;
@@ -173,6 +167,14 @@
   overflow: hidden;
 }
 
+.conversationArea {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.conversationArea[hidden],
 .chatColumn[hidden],
 .skillPage[hidden],
 .settingsPage[hidden] {
@@ -215,11 +217,127 @@
   padding: var(--ui-space-2) var(--ui-space-3);
 }
 
+.chatBody {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+
 .chatViewport {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--ui-space-6) max(var(--ui-space-6), calc((100% - 960px) / 2));
+  padding-left: max(calc(var(--ui-space-16) - var(--ui-space-1)), calc((100% - 960px) / 2));
+}
+
+.navigationRail {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  left: var(--ui-space-2);
+  max-height: min(70%, 420px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--ui-space-2) var(--ui-space-1);
+  position: absolute;
+  scrollbar-width: none;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  z-index: 1;
+}
+
+.navigationRail::-webkit-scrollbar { display: none; }
+
+.navigationMarker {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  flex: 0 0 auto;
+  height: var(--ui-space-3);
+  padding: 0;
+  position: relative;
+  width: 100%;
+}
+
+.navigationMarker::before {
+  background: var(--ui-border-strong);
+  border-radius: var(--ui-radius-pill);
+  content: "";
+  height: 3px;
+  left: 0;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  transform-origin: left center;
+  transition: transform 120ms ease, background-color 120ms ease;
+  width: var(--ui-space-2);
+}
+
+.navigationMarker:has(+ .navigationMarker + .navigationMarker:is(:hover, :focus-visible))::before,
+.navigationMarker:is(:hover, :focus-visible) + .navigationMarker + .navigationMarker::before {
+  transform: translateY(-50%) scaleX(2);
+}
+
+.navigationMarker:has(+ .navigationMarker:is(:hover, :focus-visible))::before,
+.navigationMarker:is(:hover, :focus-visible) + .navigationMarker::before {
+  transform: translateY(-50%) scaleX(3);
+}
+
+.navigationMarker[data-visible="true"]::before {
+  background: var(--ui-text);
+}
+
+.navigationMarker:is(:hover, :focus-visible)::before {
+  background: var(--ui-text);
+  transform: translateY(-50%) scaleX(4);
+}
+
+.navigationMarker:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: var(--ui-space-0-5);
+}
+
+.navigationTooltip {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  box-shadow: var(--ui-shadow-overlay);
+  color: var(--ui-text);
+  left: calc(var(--ui-space-16) - var(--ui-space-1));
+  max-width: min(340px, calc(100% - 76px));
+  padding: var(--ui-space-3);
+  pointer-events: none;
+  position: absolute;
+  transform: translateY(-50%);
+  width: max-content;
+  z-index: 3;
+}
+
+.navigationTooltip strong,
+.navigationTooltip div {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+}
+
+.navigationTooltip strong {
+  font-size: var(--ui-text-md);
+  -webkit-line-clamp: 2;
+}
+
+.navigationTooltip div {
+  color: var(--ui-text-muted);
+  font-size: var(--ui-text-sm);
+  line-height: var(--ui-leading-base);
+  margin-top: var(--ui-space-2);
+  -webkit-line-clamp: 3;
 }
 
 .runtime {
@@ -246,6 +364,18 @@
 .page :global(.thinking-card-indicator),
 .page :global(.chat-loading-dot) { background: var(--ui-text-muted); }
 .page :global(.message-card-reference) { border-color: var(--ui-border-strong); }
+.page :global(.message-card-reference-link) {
+  background: transparent;
+  border: 0;
+  border-left: 2px solid var(--ui-border-strong);
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  max-width: 100%;
+  text-align: left;
+}
+.page :global(.message-card-reference-link:hover) { color: var(--ui-reference-text); }
+.page :global(.message-card-reference-link:focus-visible) { outline: 2px solid var(--ui-focus); }
 .page :global(.message-card-actions button),
 .page :global(.markdown-message-actions button) {
   background: var(--ui-surface);
@@ -319,7 +449,7 @@
   font-size: var(--ui-text-xs);
 }
 
-.selectedChip span {
+.selectedChip .referenceLink {
   color: var(--ui-text-secondary);
   font-size: var(--ui-text-sm);
   overflow: hidden;
@@ -334,6 +464,13 @@
   cursor: pointer;
   font-size: var(--ui-text-title);
   margin-left: auto;
+}
+
+.selectedChip .referenceLink {
+  flex: 1;
+  font: inherit;
+  min-width: 0;
+  text-align: left;
 }
 
 .editorFrame {
@@ -606,6 +743,7 @@
   }
   .chatViewport {
     padding: var(--ui-space-4);
+    padding-left: calc(var(--ui-space-16) - var(--ui-space-1));
   }
   .composerArea {
     padding: var(--ui-space-3) var(--ui-space-4) var(--ui-space-4);

@@ -36,9 +36,9 @@ import styles from "./App.module.css";
 import { AgUiStatusDemoPage } from "./chat/demo/AgUiStatusDemoPage";
 import { SseDemoPage } from "./chat/demo/SseDemoPage";
 
-const ExtensionPocPage = lazy(() =>
-  import("./chat/demo/extension-poc/ExtensionPocPage").then((module) => ({
-    default: module.ExtensionPocPage,
+const ExtensionPocLayout = lazy(() =>
+  import("./chat/demo/extension-poc/ExtensionPocLayout").then((module) => ({
+    default: module.ExtensionPocLayout,
   })),
 );
 
@@ -46,7 +46,7 @@ export function App() {
   if (window.location.pathname === "/extension-poc") {
     return (
       <Suspense fallback={<main className="app" aria-busy="true" />}>
-        <ExtensionPocPage />
+        <ExtensionPocLayout />
       </Suspense>
     );
   }

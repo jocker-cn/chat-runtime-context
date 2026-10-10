@@ -1,14 +1,33 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ExtensionPocPage } from "../../../src/chat/demo/extension-poc/ExtensionPocPage";
+import { ExtensionPocLayout } from "../../../src/chat/demo/extension-poc/ExtensionPocLayout";
+import {ExtensionPocPage} from "../../../src/chat/demo/extension-poc/ExtensionPocPage";
 import { webcrypto } from "node:crypto";
-import { createMemoryAiRepository } from "../../../src/features/ai-config";
+import { SkillWorkspace, createMemoryAiRepository } from "../../../src/features/ai-config";
 import { StrictMode } from "react";
-import * as demoRuntime from "../../../src/chat/demo/demoRuntime";
+import * as pocRuntime from "../../../src/chat/demo/extension-poc/extensionPocRuntime";
+import { chatData, createMockChatData as createMemoryChatSessionRepository } from "../../../src/chat/demo/extension-poc/chatHistory";
+import * as config from "../../../src/chat/demo/extension-poc/extensionWorkspace";
+import {createBrowserExtensionRepository} from "../../../src/chat/demo/extension-poc/extensionRepository";
+type ChatSessionRepository = ReturnType<typeof createMemoryChatSessionRepository>;
+let skillRepository: ReturnType<typeof createMemoryAiRepository>;
+function useChatData(data: ChatSessionRepository) {
+  for (const key of Object.keys(data) as (keyof ChatSessionRepository)[]) {
+    vi.spyOn(chatData, key).mockImplementation(data[key] as never);
+  }
+}
+import { FakeSocket } from "./backendSocketMock";
 
 beforeEach(() => {
   vi.stubGlobal("crypto", webcrypto);
+  window.localStorage.clear();
+  useChatData(createMemoryChatSessionRepository());
+  skillRepository = createMemoryAiRepository();
+  const skills = new SkillWorkspace(skillRepository);
+  vi.spyOn(config, "getExtensionWorkspace").mockReturnValue({
+    skills, workspace: new config.ExtensionWorkspace(createBrowserExtensionRepository(), () => skills.getSnapshot().published),
+  });
   // jsdom has no layout measurements; Tiptap asynchronously scrolls selections.
   const createRange = document.createRange.bind(document);
   vi.spyOn(document, "createRange").mockImplementation(() => {
@@ -18,11 +37,12 @@ beforeEach(() => {
     return range;
   });
 });
-async function renderPage() {
-  const repository = createMemoryAiRepository();
-  render(<ExtensionPocPage skillRepository={repository} />);
-  await waitFor(() => expect(screen.getByRole("main").getAttribute("data-skill-status")).toBe("ready"));
-  return repository;
+async function renderPage(chatRepository?: ChatSessionRepository) {
+  if (chatRepository) useChatData(chatRepository);
+  render(<ExtensionPocLayout />);
+  await config.getExtensionWorkspace().skills.start();
+  await screen.findByRole("heading", { name: "发布风险讨论" });
+  return skillRepository;
 }
 
 afterEach(() => {
@@ -30,9 +50,84 @@ afterEach(() => {
   window.localStorage.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  FakeSocket.instances = [];
 });
 
 describe("ExtensionPocPage", () => {
+  it("works with only a sessionId and does not copy old history into a new session on prop changes", async () => {
+    const next = await chatData.createSession();
+    const view = render(<ExtensionPocPage sessionId="extension-poc"/>);
+    await screen.findByRole("heading", {name: "发布风险讨论"});
+    view.rerender(<ExtensionPocPage sessionId={next.id}/>);
+    await screen.findByText("从下方输入框开始对话。");
+    expect(await chatData.getHistory(next.id)).toEqual([]);
+    view.rerender(<ExtensionPocPage sessionId="extension-poc"/>);
+    await screen.findByRole("heading", {name: "发布风险讨论"});
+    expect(await chatData.getHistory("extension-poc")).toHaveLength(4);
+    expect(document.querySelectorAll('[aria-label^="聊天："]')).toHaveLength(1);
+  });
+
+  it("locates special-character reference IDs only inside its own viewport", async () => {
+    const messages = await chatData.getHistory("extension-poc");
+    const id = 'assistant:"special]\\id';
+    messages[3]!.id = id;
+    vi.spyOn(chatData, "getHistory").mockResolvedValue(messages);
+    const outside = document.createElement("article");
+    outside.dataset.messageId = id;
+    outside.scrollIntoView = vi.fn();
+    document.body.append(outside);
+    try {
+      render(<ExtensionPocPage sessionId="extension-poc"/>);
+      const region = await screen.findByRole("region", {name: "聊天：发布风险讨论"});
+      const target = Array.from(region.querySelectorAll<HTMLElement>("[data-message-id]"))
+        .find((element) => element.dataset.messageId === id)!;
+      target.scrollIntoView = vi.fn();
+      fireEvent.click(within(target).getByRole("button", {name: "Chat from here"}));
+      fireEvent.click(screen.getByRole("button", {name: "定位引用的原消息"}));
+      expect(target.scrollIntoView).toHaveBeenCalledOnce();
+      expect(outside.scrollIntoView).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(target);
+    } finally { outside.remove(); }
+  });
+
+  it("locates a draft reference inside this chat without sending a request", async () => {
+    await renderPage();
+    const target = screen.getByRole("region", { name: "聊天：发布风险讨论" })
+      .querySelector<HTMLElement>('[data-message-id="history-a-2:assistant"]')!;
+    const scrollIntoView = vi.fn();
+    target.scrollIntoView = scrollIntoView;
+    fireEvent.click(within(target).getByRole("button", { name: "Chat from here" }));
+    fireEvent.click(screen.getByRole("button", { name: "定位引用的原消息" }));
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center", inline: "nearest" });
+    expect(document.activeElement).toBe(target);
+  });
+
+  it("previews turns and navigates only within the active chat's viewport", async () => {
+    const scrollIntoView = vi.fn();
+    await renderPage();
+    const target = screen.getByRole("region", { name: "聊天：发布风险讨论" })
+      .querySelector<HTMLElement>("[data-turn-id]")!;
+    target.scrollIntoView = scrollIntoView;
+    const rail = screen.getByRole("navigation", { name: "对话轮次导航" });
+    const markers = within(rail).getAllByRole("button");
+    expect(markers).toHaveLength(2);
+    fireEvent.mouseEnter(markers[0]);
+    const preview = screen.getByRole("tooltip");
+    expect(preview.textContent).toContain("帮我总结一下发布 ID 2131 的风险。");
+    expect(preview.textContent).toContain("已确认发布 ID 2131。");
+    fireEvent.click(markers[0]);
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start", inline: "nearest" });
+    expect(scrollIntoView.mock.instances[0]).toBe(target);
+    fireEvent.mouseLeave(rail);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+    await screen.findByRole("heading", { name: "新对话" });
+    expect(screen.queryByRole("navigation", { name: "对话轮次导航" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "发布风险讨论" }));
+    await screen.findByRole("heading", { name: "发布风险讨论" });
+    expect(await screen.findByRole("navigation", { name: "对话轮次导航" })).toBeTruthy();
+  });
+
   it("searches the management directory without replacing the open editor and confirms saves", async () => {
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: "自定义 MCP" }));
@@ -203,8 +298,9 @@ describe("ExtensionPocPage", () => {
   });
 
   it("preserves the current input and Agent B setting when visiting a feature page", async () => {
-    const createRuntime = vi.spyOn(demoRuntime, "createBeComparisonRuntime");
+    const createRuntime = vi.spyOn(pocRuntime, "createExtensionPocRuntime");
     await renderPage();
+    const runtimeCount = createRuntime.mock.calls.length;
     const secondary = screen.getByRole("checkbox", { name: /Agent B/ });
     fireEvent.click(secondary);
     fireEvent.click(screen.getByRole("button", { name: "打开扩展命令菜单" }));
@@ -215,40 +311,61 @@ describe("ExtensionPocPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "发布风险讨论" }));
     expect(screen.getByText("skills:发布风险检…")).toBe(token);
     expect((screen.getByRole("checkbox", { name: /Agent B/ }) as HTMLInputElement).checked).toBe(false);
-    expect(createRuntime).toHaveBeenCalledTimes(1);
+    expect(createRuntime).toHaveBeenCalledTimes(runtimeCount);
   });
 
-  it("creates an empty independent chat and restores each history's own input", async () => {
-    const createRuntime = vi.spyOn(demoRuntime, "createBeComparisonRuntime");
-    await renderPage();
+  it("loads one conversation by session ID instead of retaining hidden runtimes and drafts", async () => {
+    const createRuntime = vi.spyOn(pocRuntime, "createExtensionPocRuntime");
+    const repository = createMemoryChatSessionRepository();
+    const getHistory = vi.spyOn(repository, "getHistory");
+    await renderPage(repository);
     fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
-    expect(screen.getByRole("heading", { name: "新对话" })).toBeTruthy();
+    await screen.findByRole("heading", { name: "新对话" });
     expect(screen.getByText("从下方输入框开始对话。")).toBeTruthy();
-    expect(createRuntime.mock.calls[1]?.[0]?.includeDemoHistory).toBe(false);
-    expect(createRuntime.mock.calls[1]?.[0]?.threadId).not.toBe("extension-poc");
-    expect(createRuntime.mock.results[1]?.value.runtime.getSnapshot().turnIds).toEqual([]);
+    expect(createRuntime.mock.calls.at(-1)?.[0]?.history).toEqual([]);
+    const newSessionId = createRuntime.mock.calls.at(-1)?.[0]?.threadId;
+    expect(newSessionId).not.toBe("extension-poc");
+    expect(createRuntime.mock.results.at(-1)?.value.runtime.getSnapshot().turnIds).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: "打开扩展命令菜单" }));
     fireEvent.click(screen.getByRole("option", { name: /^Agent/ }));
     fireEvent.click(screen.getByRole("option", { name: /发布助手/ }));
-    const token = screen.getByText("agents:发布助手");
+    expect(screen.getByText("agents:发布助手")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "发布风险讨论" }));
+    await screen.findByRole("heading", { name: "发布风险讨论" });
     expect(within(screen.getByRole("region", { name: "聊天：发布风险讨论" }))
       .queryByText("agents:发布助手")).toBeNull();
     expect(screen.getByRole("heading", { name: "发布风险讨论" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "新对话" }));
-    expect(screen.getByText("agents:发布助手")).toBe(token);
-    expect(createRuntime).toHaveBeenCalledTimes(2);
+    await screen.findByRole("heading", { name: "新对话" });
+    expect(screen.queryByText("agents:发布助手")).toBeNull();
+    expect(createRuntime.mock.calls.filter(([options]) => options?.history !== undefined)).toHaveLength(4);
+    expect(getHistory.mock.calls.map(([id]) => id)).toEqual([
+      "extension-poc", expect.any(String), "extension-poc", newSessionId,
+    ]);
+    expect(document.querySelectorAll('[aria-label^="聊天："]')).toHaveLength(1);
+    expect(createRuntime.mock.results[0]?.value.runtime.getSnapshot().status).toBe("closed");
   });
 
   it("names a chat after sending and retains its messages when switching histories", async () => {
     // Offline sources verify the UI flow without calling the user's LLM API.
-    vi.spyOn(demoRuntime, "createBeComparisonRuntime").mockImplementation(() => ({
-      ...demoRuntime.createDemoRuntimeController(demoRuntime.createDemoRuntime()),
-      setSecondaryAgentEnabled: vi.fn(),
-      socket: { closeWithError: vi.fn() },
-    }));
+    vi.stubGlobal("WebSocket", class extends FakeSocket {
+      constructor(url: string) { super(url); queueMicrotask(() => this.open()); }
+      override send(payload: string) {
+        super.send(payload);
+        const { input } = JSON.parse(payload);
+        const prefix = input.threadId.endsWith("agent-a") ? "A" : "B";
+        const text = input.messages.filter((message: { role: string }) => message.role === "user").at(-1).content;
+        queueMicrotask(() => {
+          this.message({ event: "streaming_started", message: { id: `${prefix}-${input.runId}` } });
+          this.message({ event: "streaming", message: { id: `${prefix}-${input.runId}`, content: `${prefix} answer: ${text}` } });
+          this.message({ event: "streaming_completed", message: { id: `${prefix}-${input.runId}` } });
+          this.message({ event: "completed" });
+        });
+      }
+    });
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+    await screen.findByRole("heading", { name: "新对话" });
     const editor = within(screen.getByRole("region", { name: "聊天：新对话" }))
       .getByLabelText("消息输入框，输入 / 选择扩展");
     fireEvent.input(editor, { target: { textContent: "帮我检查发布风险" } });
@@ -257,19 +374,59 @@ describe("ExtensionPocPage", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "帮我检查发布风险" })).toBeTruthy());
     await waitFor(() => expect(screen.getByText("A answer: 帮我检查发布风险")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "发布风险讨论" }));
+    await screen.findByRole("heading", { name: "发布风险讨论" });
     expect(within(screen.getByRole("region", { name: "聊天：发布风险讨论" }))
       .queryByText("A answer: 帮我检查发布风险")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "帮我检查发布风险" }));
-    expect(screen.getByText("A answer: 帮我检查发布风险")).toBeTruthy();
+    await screen.findByText("A answer: 帮我检查发布风险");
+    expect(screen.queryByText("B answer: 帮我检查发布风险")).toBeNull();
+    expect(document.querySelectorAll("article[data-turn-id]")).toHaveLength(1);
   });
   it("loads Skill content under StrictMode and keeps unsaved edits across feature navigation", async () => {
-    render(<StrictMode><ExtensionPocPage skillRepository={createMemoryAiRepository()} /></StrictMode>);
-    await waitFor(() => expect(screen.getByRole("main").getAttribute("data-skill-status")).toBe("ready"));
+    const createRuntime = vi.spyOn(pocRuntime, "createExtensionPocRuntime");
+    render(<StrictMode><ExtensionPocLayout /></StrictMode>);
+    await config.getExtensionWorkspace().skills.start();
+    await screen.findByRole("heading", { name: "发布风险讨论" });
     fireEvent.click(screen.getByRole("button", { name: "自定义 Skill" }));
     await waitFor(() => expect((screen.getByLabelText("Skill 展示名称") as HTMLInputElement).value).toBe("发布风险检查"));
     fireEvent.change(screen.getByLabelText("Skill 展示名称"), { target: { value: "未保存的名称" } });
     fireEvent.click(screen.getByRole("button", { name: "自定义 MCP" }));
     fireEvent.click(screen.getByRole("button", { name: "自定义 Skill" }));
     expect((screen.getByLabelText("Skill 展示名称") as HTMLInputElement).value).toBe("未保存的名称");
+    expect(createRuntime.mock.results.at(-1)?.value.runtime.getSnapshot().status).not.toBe("closed");
+  });
+
+  it("ignores a stale history response without hydrating the wrong session", async () => {
+    const repository = createMemoryChatSessionRepository();
+    const getHistory = repository.getHistory;
+    const originalHistory = await getHistory("extension-poc");
+    let resolve!: (history: typeof originalHistory) => void;
+    const delayed = new Promise<typeof originalHistory>((done) => { resolve = done; });
+    vi.spyOn(repository, "getHistory").mockImplementation((id) => id === "extension-poc" ? delayed : getHistory(id));
+    const create = vi.spyOn(pocRuntime, "createExtensionPocRuntime");
+    useChatData(repository);
+    render(<ExtensionPocLayout />);
+    await screen.findByRole("button", { name: "发布风险讨论" });
+    expect(create.mock.calls.filter(([options]) => options?.history !== undefined)).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "新建对话" }));
+    await screen.findByRole("heading", { name: "新对话" });
+    await act(async () => resolve(originalHistory));
+    expect(screen.getByRole("heading", { name: "新对话" })).toBeTruthy();
+    expect(create.mock.calls.filter(([options]) => options?.history !== undefined)).toHaveLength(1);
+    expect(document.querySelectorAll('[aria-label^="聊天："]')).toHaveLength(1);
+  });
+
+  it("reports history loading errors without overwriting stored data and retries", async () => {
+    const repository = createMemoryChatSessionRepository();
+    vi.spyOn(repository, "getHistory").mockRejectedValueOnce(new Error("Offline"));
+    const create = vi.spyOn(pocRuntime, "createExtensionPocRuntime");
+    useChatData(repository);
+    render(<ExtensionPocLayout />);
+    await screen.findByRole("alert");
+    expect(screen.getByRole("alert").textContent).toContain("Offline");
+    expect(create.mock.calls.filter(([options]) => options?.history !== undefined)).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "重试加载" }));
+    await screen.findByRole("heading", { name: "发布风险讨论" });
+    expect(create.mock.calls.filter(([options]) => options?.history !== undefined)).toHaveLength(1);
   });
 });

@@ -318,6 +318,22 @@ p {
   text-underline-offset: 2px;
 }
 
+.markdown-message-inline-action {
+  border: 0;
+  background: transparent;
+  color: var(--ui-reference-text);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-message-inline-action:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+
 .markdown-message blockquote {
   border-left: 3px solid #9aabb9;
   color: #526475;

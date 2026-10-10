@@ -6,7 +6,21 @@ import {
   type ExtensionItem,
   type ExtensionKind,
 } from "./extensionModel";
-import type { ExtensionRepository } from "./extensionRepository";
+import { createBrowserExtensionRepository, type ExtensionRepository } from "./extensionRepository";
+import { createIndexedDbAiRepository, SkillWorkspace } from "../../../features/ai-config";
+
+// Application-owned configuration data shared by settings and chat, never by Runtime.
+let configuration: { skills: SkillWorkspace; workspace: ExtensionWorkspace } | undefined;
+export function getExtensionWorkspace() {
+  if (!configuration) {
+    const skills = new SkillWorkspace(createIndexedDbAiRepository());
+    configuration = {
+      skills,
+      workspace: new ExtensionWorkspace(createBrowserExtensionRepository(), () => skills.getSnapshot().published),
+    };
+  }
+  return configuration;
+}
 
 export class ExtensionWorkspace {
   private catalog: ExtensionCatalog;

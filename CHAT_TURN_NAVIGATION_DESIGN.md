@@ -487,22 +487,25 @@ Marker 较多时：
 
 ## 10. Visibility Tracker
 
-推荐一个共享 `IntersectionObserver`：
+`ChatTurnNavigationRail` 内部使用一个共享 `IntersectionObserver`，以 `viewportAdapter.getScrollElement()` 返回的聊天滚动容器为 root，观察现有 `TurnView` 的整个 `[data-turn-id]` 区域（用户输入和 A/B 回复），而不是只观察用户气泡。Turn 与视口有实际面积交集时，其刻度进入可见态；超长回复滚动到中间时仍保持对应刻度高亮。
 
 ```ts
 const observer = new IntersectionObserver(handleEntries, {
   root: viewportAdapter.getScrollElement(),
-  rootMargin: "-16px 0px 0px 0px",
-  threshold: [0, 0.01],
+  threshold: [0, 0.000001],
 });
 ```
 
-Registry 新增或删除 Anchor 时：
+可见 `turnId` 集合只保存在 Rail 内部，不写入 Runtime 或导航 items。多个 Turn 同时可见时，对应多个刻度同时设置 `data-visible="true"` 和 `aria-current="true"`；页面通过 `data-visible` 加深刻度颜色，悬浮放大与预览仍独立工作。集合未变化时不更新状态。
+
+Rail 挂载、导航 items 或 adapter 变化时同步观察目标；一个 `MutationObserver` 仅在增删 Turn 容器时重新同步，避免正文流式更新触发全量 DOM 查询：
 
 - 新增：`observer.observe(element)`。
 - 删除：`observer.unobserve(element)`。
-- root 改变：重建 observer。
+- adapter 或 items 改变：重建 observer；DOM 容器被替换时，宿主应同步更新 adapter。
 - dispose：`observer.disconnect()`。
+
+未提供滚动容器（默认 DOM adapter 返回 `null`）时不启用可见态检测，点击跳转、悬浮预览仍可使用。`/extension-poc` 已提供自定义 adapter，因此直接获得滚动高亮，无需新增页面包装或修改 Runtime。
 
 不应：
 
@@ -1438,9 +1441,9 @@ React 第一版直接使用组件组合，不增加 rendererId/组件注册表�
 - 扩展管理页：对应类型的目录和配置表单；支持返回当前聊天。
 - 聊天页：对应会话的消息区、Agent B 开关和底部 Tiptap 输入框。
 
-`chatSessionModel.ts` 只维护会话 ID、标题与示例历史标记等 POJO。新建会话使用独立 threadId，并从空消息开始；首条发送消息作为标题。默认示例会话保留原有发布风险历史。
+会话目录与消息历史分开维护，聊天页按 `sessionId` 调用数据接口查询历史，不接收外层组装的 history、repository 或配置对象。新建会话使用独立 threadId，并从空消息开始；首条发送消息作为标题。默认示例会话保留原有发布风险历史。
 
-每个已打开会话拥有独立 `ChatSession` 组件与 Compare Runtime，切换功能页或聊天时保持挂载，仅隐藏非当前页面，保留消息、输入草稿、引用和 Agent B 设置。离开 POC 页面时统一由组件生命周期释放各自 Runtime。不开启额外请求，不改变两个 Agent 的调用协议。
+只挂载当前会话的聊天页与 Compare Runtime；切换会话时保存消息数据并释放旧 Runtime，不缓存 controller，也不通过 `sessions.map` 隐藏多个聊天页。切换配置功能时暂时隐藏当前聊天页，保留当前输入草稿、引用和 Agent B 设置。历史按第一 Agent 的主历史恢复；mock 初始上下文同时注入 A/B，不为 mock 扩展 core 历史协议。
 
 本轮聊天历史仅保留在当前页面内存，刷新后回到示例会话；不实现聊天数据持久化、BE 历史查询或跨设备同步。扩展配置的既有 localStorage 存储保持不变，后续聊天数据源可以单独接入。
 
@@ -1505,3 +1508,19 @@ Skill 的“内容编辑”聚焦基本信息、文件包、主文件表单/源�
 Agent 分为基本信息、行为指令和关联能力；MCP 与 Plugin 分别展示连接声明与清单地址。目录搜索不替换当前编辑对象，切换 POC 配置前确认未保存修改，保存成功提供反馈。通过左侧历史切回聊天，已有 Compare Runtime 和输入草稿继续保留。
 
 窄屏下目录移到编辑区上方并限制列表高度；长目录和正文分别滚动。共享管理样式与业务内部样式继续引用统一 tokens，不增加各页面独立配色。
+
+### 21.4 按功能封装模块，收敛页面接入边界
+
+> 结构更新：2026-10-10。采用按功能组织（feature-based modular architecture），模块内部高内聚、模块之间最小必要接口；不引入微前端、DI 容器或新的插件框架。
+
+- `ExtensionPocLayout` 只维护当前 sessionId、功能页切换，以及离开未保存配置时的确认。不初始化 Runtime、加载历史或组装菜单目录。
+- `ExtensionPocSidebar` 提供固定功能导航；内部独立的 Session 列表维护目录加载、新建、标题更新订阅与列表错误，只对外提供会话选择。
+- `AgentSettings`、`McpSettings`、`PluginSettings`、`SkillSettings` 各自维护对应页面内容和状态。共用目录/表单与 CRUD 机制保持为配置模块内部实现，不由布局传入草稿或控制器。
+- `ExtensionPocPage` 只接收 `sessionId`，内部加载历史并维护 controller、A/B 开关、引用、导航和生命周期；直接使用 core 的 `ChatRuntimeView` 与 `ChatTurnNavigationRail`。
+- Message Card 仍接收消息和既有渲染上下文；业务交互通过 RuntimeView 的 extensions/store 提供，不把 controller 或页面配置对象传给 Card。
+- `ExtensionComposer` 自己维护 Tiptap、菜单、选中能力、内容预览和 invocation。只接收发送回调，以及聊天引用的展示/清除/定位等确有跨模块需要的能力。
+- `chatHistory.ts` 保留数据访问与 mock 数据，不缓存 React 组件或 Runtime；接 BE 时替换数据操作。配置页与输入框通过既有 workspace 模块共享配置数据，不经布局层层透传。
+
+删除仅起转交作用的 `ChatConversation`、`useChatConversation`、`useChatSessions` 和额外历史 DTO/Repository 文件；聊天私有 DOM 定位回到聊天页内部。组件、类型与小工具不因行数或猜测复用而单独建层。
+
+参考边界：[VS Code Workbench contributions](https://github.com/microsoft/vscode/wiki/Source-Code-Organization) 强调功能内部实现不被其他模块穿透；[Bulletproof React 项目结构](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md) 按功能集中代码；[Theia Widgets](https://theia-ide.org/docs/widgets/) 将布局宿主与功能视图分离。这里借鉴模块职责与入口约束，不照搬其完整框架。

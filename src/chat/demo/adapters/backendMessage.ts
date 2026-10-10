@@ -59,6 +59,27 @@ export function createBackendMessageEventConverter(input: RunAgentInput) {
   });
 
   return {
+    fail(error: string): BackendMessageConversion {
+      const events: BaseEvent[] = [];
+      textMessageIds.forEach((messageId) => events.push({
+        type: EventType.TEXT_MESSAGE_END,
+        messageId,
+      }));
+      textMessageIds.clear();
+      // Replace the run's placeholder rather than leaving it in Processing.
+      events.push({
+        type: EventType.ACTIVITY_SNAPSHOT,
+        messageId: thinkingMessageId,
+        activityType: "error",
+        content: { message: error, phase: "error", thinkingText },
+        replace: true,
+      }, {
+        type: EventType.RUN_ERROR,
+        message: error,
+      });
+      return { events, terminal: true };
+    },
+
     start(): BaseEvent[] {
       return [
         {

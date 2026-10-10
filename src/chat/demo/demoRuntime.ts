@@ -89,6 +89,8 @@ export interface BeComparisonRuntimeOptions {
   threadId?: string;
   /** New POC conversations start empty; existing demos retain their seeded history. */
   includeDemoHistory?: boolean;
+  /** extension-poc handles errors within each Agent's original response branch. */
+  handleRunErrors?: boolean;
 }
 
 export interface DemoRuntimeController<
@@ -149,6 +151,7 @@ export function createBeComparisonRuntime({
   websocketUrl = "ws://localhost:8080/ws/copilot",
   threadId = "ab-chat",
   includeDemoHistory = true,
+  handleRunErrors = false,
 }: BeComparisonRuntimeOptions = {}): BeComparisonRuntimeController {
   let secondaryAgentEnabled = true;
   const sourceAHistoryMessages = includeDemoHistory ? createSourceAMockHistory() : [];
@@ -158,12 +161,14 @@ export function createBeComparisonRuntime({
     description: "Agent A",
     threadId: `${threadId}:${DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA}`,
     initialMessages: sourceAHistoryMessages,
+    handleRunErrors,
   });
   const agentB = createSocketAgent({
     websocketUrl,
     agentId: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB,
     description: "Agent B",
     threadId: `${threadId}:${DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB}`,
+    handleRunErrors,
   });
   const sourceA = new DemoAgUiAgentSource({
     id: DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
@@ -231,22 +236,24 @@ export function createBeComparisonRuntime({
         ? undefined
         : [DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA],
   });
-  agentA.onDisconnected = (event) => {
-    void addSocketDisconnectError(
-      runtime,
-      controller.queue,
-      DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
-      event,
-    ).catch(reportSocketDisconnectError);
-  };
-  agentB.onDisconnected = (event) => {
-    void addSocketDisconnectError(
-      runtime,
-      controller.queue,
-      DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB,
-      event,
-    ).catch(reportSocketDisconnectError);
-  };
+  if (!handleRunErrors) {
+    agentA.onDisconnected = (event) => {
+      void addSocketDisconnectError(
+        runtime,
+        controller.queue,
+        DEMO_COMPARE_SOURCE_BRANCH_IDS.agentA,
+        event,
+      ).catch(reportSocketDisconnectError);
+    };
+    agentB.onDisconnected = (event) => {
+      void addSocketDisconnectError(
+        runtime,
+        controller.queue,
+        DEMO_COMPARE_SOURCE_BRANCH_IDS.agentB,
+        event,
+      ).catch(reportSocketDisconnectError);
+    };
+  }
   return {
     ...controller,
     setSecondaryAgentEnabled: (enabled) => {
@@ -574,12 +581,14 @@ function createSocketAgent({
   description,
   threadId,
   initialMessages = [],
+  handleRunErrors = false,
 }: {
   websocketUrl: string;
   agentId: string;
   description: string;
   threadId: string;
   initialMessages?: Message[];
+  handleRunErrors?: boolean;
 }) {
   return createAgent({
     transport: "websocket",
@@ -589,6 +598,7 @@ function createSocketAgent({
       description,
       threadId,
       initialMessages,
+      handleRunErrors,
     },
   });
 }
@@ -639,6 +649,12 @@ function createSourceAMockHistory(): DemoMessage[] {
 | P0 | 回滚验证记录 | 未完成 | 补跑回滚演练并上传记录 |
 | P0 | 灰度指标阈值 | 待确认 | 明确错误率和延迟阈值 |
 | P1 | 客服通知模板 | 草稿 | 发布前完成审核 |
+
+### 快捷操作
+
+| [生成检查单](#action:checklist) | [查看回滚方案](#action:rollback) |
+| --- | --- |
+| [AG-UI 文档](https://docs.ag-ui.com/) | [React 文档](https://react.dev/) |
 
 ### 今晚执行顺序
 

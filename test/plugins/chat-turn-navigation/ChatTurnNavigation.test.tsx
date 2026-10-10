@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { StrictMode } from "react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { StrictMode, useMemo, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DemoMessage } from "../../../src/chat/demo/demoMessage";
 import {
@@ -20,6 +20,7 @@ describe("Chat Turn Navigation", () => {
 
   afterEach(async () => {
     cleanup();
+    vi.unstubAllGlobals();
     await Promise.allSettled(runtimes.splice(0).map((runtime) => runtime.dispose()));
   });
 
@@ -133,6 +134,108 @@ describe("Chat Turn Navigation", () => {
       block: "start",
       inline: "nearest",
     });
+  });
+
+  it("highlights all visible Turns within the adapter viewport, independently of hover", async () => {
+    const observers = mockIntersectionObservers();
+    const runtime = createHistoryRuntime();
+    runtimes.push(runtime);
+
+    function Harness() {
+      const viewport = useRef<HTMLDivElement>(null);
+      const viewportAdapter = useMemo(() => ({
+        getScrollElement: () => viewport.current,
+        revealItem: vi.fn(),
+      }), []);
+      const navigation = useChatTurnNavigation({
+        runtime, viewportAdapter,
+        getPreview: ({ inputMessage }) => ({ title: String(inputMessage.content), ariaLabel: "Preview" }),
+      });
+      return <>
+        <article data-turn-id="turn-1">Outside this chat</article>
+        <div ref={viewport} data-testid="viewport">
+          <article data-turn-id="turn-1"><p>First question and long answer</p></article>
+          <article data-turn-id="turn-2">Second</article>
+        </div>
+        <ChatTurnNavigationRail navigation={navigation} />
+      </>;
+    }
+
+    const view = render(<StrictMode><Harness /></StrictMode>);
+    const viewport = screen.getByTestId("viewport");
+    const turns = viewport.querySelectorAll("[data-turn-id]");
+    const markers = screen.getAllByRole("button");
+    const observer = observers.at(-1)!;
+    expect(observer.options.root).toBe(viewport);
+    expect(observer.observe.mock.calls.map(([element]) => element)).toEqual([...turns]);
+    expect(markers[0]!.hasAttribute("data-visible")).toBe(false);
+
+    act(() => observer.emit(turns[0]!, true));
+    expect(markers[0]!.getAttribute("data-visible")).toBe("true");
+    expect(markers[0]!.getAttribute("aria-current")).toBe("true");
+    act(() => observer.emit(turns[1]!, true));
+    expect(markers.every((marker) => marker.getAttribute("data-visible") === "true")).toBe(true);
+
+    fireEvent.mouseEnter(markers[0]!);
+    expect(screen.getByRole("tooltip").textContent).toContain("First");
+    act(() => observer.emit(turns[0]!, false));
+    expect(markers[0]!.hasAttribute("aria-current")).toBe(false);
+    expect(markers[1]!.getAttribute("data-visible")).toBe("true");
+    expect(screen.getByRole("tooltip").textContent).toContain("First");
+    // Touching the viewport edge without a visible area is not a visible Turn.
+    act(() => observer.emit(turns[1]!, true, 0));
+    expect(markers[1]!.hasAttribute("data-visible")).toBe(false);
+
+    view.unmount();
+    expect(observers.every((item) => item.disconnect.mock.calls.length === 1)).toBe(true);
+  });
+
+  it("tracks late-mounted and replaced Turn containers without rescanning streamed text", async () => {
+    const observers = mockIntersectionObservers();
+    const runtime = createHistoryRuntime();
+    runtimes.push(runtime);
+    function Harness() {
+      const viewport = useRef<HTMLDivElement>(null);
+      const viewportAdapter = useMemo(() => ({
+        getScrollElement: () => viewport.current,
+        revealItem: vi.fn(),
+      }), []);
+      const navigation = useChatTurnNavigation({ runtime, viewportAdapter });
+      return <>
+        <div ref={viewport} data-testid="viewport" />
+        <ChatTurnNavigationRail navigation={navigation} />
+      </>;
+    }
+    const view = render(<Harness />);
+    const viewport = screen.getByTestId("viewport");
+    const observer = observers.at(-1)!;
+    const turn = document.createElement("article");
+    turn.dataset.turnId = "turn-1";
+    const query = vi.spyOn(viewport, "querySelectorAll");
+    await act(async () => { viewport.append(turn); });
+    expect(observer.observe).toHaveBeenCalledWith(turn);
+    act(() => observer.emit(turn, true));
+    expect(screen.getAllByRole("button")[0]!.getAttribute("data-visible")).toBe("true");
+
+    query.mockClear();
+    await act(async () => { turn.append(document.createTextNode("Streamed answer")); });
+    expect(query).not.toHaveBeenCalled();
+
+    const replacement = document.createElement("article");
+    replacement.dataset.turnId = "turn-1";
+    await act(async () => { turn.replaceWith(replacement); });
+    expect(observer.unobserve).toHaveBeenCalledWith(turn);
+    expect(observer.observe).toHaveBeenCalledWith(replacement);
+    expect(screen.getAllByRole("button")[0]!.hasAttribute("data-visible")).toBe(false);
+    act(() => observer.emit(replacement, true));
+    expect(screen.getAllByRole("button")[0]!.getAttribute("data-visible")).toBe("true");
+    await act(async () => { replacement.remove(); });
+    expect(screen.getAllByRole("button")[0]!.hasAttribute("data-visible")).toBe(false);
+    view.unmount();
+    const scans = query.mock.calls.length;
+    await act(async () => { viewport.append(turn); });
+    expect(query).toHaveBeenCalledTimes(scans);
+    query.mockRestore();
   });
 
   it("previews the first Agent when a Compare Turn has no selected Branch", async () => {
@@ -429,4 +532,23 @@ function createRect({ top, height }: { top: number; height: number }) {
     height,
     toJSON: () => undefined,
   };
+}
+
+function mockIntersectionObservers() {
+  const observers: ObserverMock[] = [];
+  class ObserverMock {
+    observe = vi.fn<(element: Element) => void>();
+    unobserve = vi.fn<(element: Element) => void>();
+    disconnect = vi.fn();
+    constructor(private callback: IntersectionObserverCallback, readonly options: IntersectionObserverInit) {
+      observers.push(this);
+    }
+    emit(target: Element, isIntersecting: boolean, height = 100) {
+      this.callback([{
+        target, isIntersecting, intersectionRect: createRect({ top: 0, height }),
+      } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    }
+  }
+  vi.stubGlobal("IntersectionObserver", ObserverMock);
+  return observers;
 }
