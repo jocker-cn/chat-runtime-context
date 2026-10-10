@@ -1,0 +1,8 @@
+.detail { display: grid; gap: var(--ui-space-1); min-width: 0; width: 100%; }
+.detail strong { font-size: var(--ui-text-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail small, .endpoint, .excerpt { color: var(--ui-text-muted); font-size: var(--ui-text-sm); line-height: var(--ui-leading-base); }
+.detail small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.endpoint { color: var(--ui-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap; }
+.badges { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); }
+.badges > span { background: var(--ui-selected); border-radius: var(--ui-radius-xs); color: var(--ui-text-secondary); font-size: var(--ui-text-xxs); padding: var(--ui-space-1) var(--ui-space-2); }
