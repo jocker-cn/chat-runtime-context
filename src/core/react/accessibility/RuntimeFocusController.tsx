@@ -271,6 +271,7 @@ export function RuntimeFocusGroup({
   enabled = true,
   groupId,
   onKeyDown,
+  onBlur,
   role = "listitem",
   tabIndex,
   "aria-label": ariaLabel = "Message",
@@ -297,8 +298,15 @@ export function RuntimeFocusGroup({
 
   const handleExit = useCallback(() => {
     setActive(false);
-    requestAnimationFrame(() => elementRef.current?.focus());
+    elementRef.current?.focus();
   }, []);
+
+  const handleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
+    onBlur?.(event);
+    if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+      setActive(false);
+    }
+  }, [onBlur]);
 
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -307,6 +315,7 @@ export function RuntimeFocusGroup({
         event.defaultPrevented ||
         !enabled ||
         event.key !== "Enter" ||
+        event.target !== event.currentTarget ||
         !hasInnerFocusableElements(elementRef.current)
       ) {
         return;
@@ -341,6 +350,7 @@ export function RuntimeFocusGroup({
             : tabIndex
         }
         onKeyDown={handleKeyDown}
+        onBlur={handleBlur}
       >
         {children}
       </div>

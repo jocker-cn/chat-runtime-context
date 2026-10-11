@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   screen,
@@ -196,6 +197,79 @@ describe("RuntimeFocusController", () => {
     fireEvent.keyDown(action, { key: "Escape" });
     await waitFor(() => expect(document.activeElement).toBe(response));
     expect(action.getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("does not enter inner mode for Enter bubbling from a business control", () => {
+    render(<RuntimeFocusHarness />);
+    const action = screen.getByTestId("action-response");
+    act(() => { action.focus(); });
+    const unhandled = fireEvent.keyDown(action, { key: "Enter" });
+    expect(unhandled).toBe(true);
+    expect(screen.getByTestId("group-response").hasAttribute("data-active-runtime-group")).toBe(false);
+    expect(action.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(action);
+  });
+
+  it("exits inner mode when focus leaves without moving focus back", async () => {
+    render(<RuntimeFocusHarness />);
+    const response = screen.getByTestId("group-response");
+    const action = screen.getByTestId("action-response");
+    act(() => { response.focus(); });
+    fireEvent.keyDown(response, { key: "Enter" });
+    expect(document.activeElement).toBe(action);
+    const outside = screen.getByTestId("after");
+    act(() => { outside.focus(); });
+    expect(response.hasAttribute("data-active-runtime-group")).toBe(false);
+    expect(action.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(outside);
+    act(() => { response.focus(); });
+    expect(fireEvent.keyDown(response, { key: "Tab" })).toBe(true);
+    expect(document.activeElement).toBe(response);
+  });
+
+  it("keeps inner mode between controls but respects focus moved by a business action", async () => {
+    const onBlur = vi.fn();
+    render(<>
+      <RuntimeFocusGroup groupId="response" data-testid="group" onBlur={onBlur}>
+        <table><tbody><tr><td><a href="/detail">Detail</a></td></tr></tbody></table>
+        <button type="button" onClick={() => screen.getByTestId("dialog-input").focus()}>Open dialog</button>
+      </RuntimeFocusGroup>
+      <input data-testid="dialog-input" />
+    </>);
+    const group = screen.getByTestId("group");
+    act(() => { group.focus(); });
+    fireEvent.keyDown(group, { key: "Enter" });
+    const link = screen.getByRole("link");
+    expect(document.activeElement).toBe(link);
+    fireEvent.keyDown(link, { key: "ArrowRight" });
+    const button = screen.getByRole("button", { name: "Open dialog" });
+    expect(document.activeElement).toBe(button);
+    expect(group.getAttribute("data-active-runtime-group")).toBe("true");
+    fireEvent.keyDown(button, { key: "Enter" });
+    await act(async () => {});
+    expect(document.activeElement).toBe(screen.getByTestId("dialog-input"));
+    expect(group.hasAttribute("data-active-runtime-group")).toBe(false);
+    expect(link.tabIndex).toBe(-1);
+    expect(button.tabIndex).toBe(-1);
+    expect(onBlur).toHaveBeenCalled();
+  });
+
+  it("returns to the message container when its last active control is removed", async () => {
+    let remove: () => void = () => {};
+    function Table() {
+      const [visible, setVisible] = useState(true);
+      remove = () => setVisible(false);
+      return visible ? <table><tbody><tr><td><a href="/detail">Detail</a></td></tr></tbody></table> : null;
+    }
+    render(<RuntimeFocusGroup groupId="response" data-testid="group"><Table /></RuntimeFocusGroup>);
+    const group = screen.getByTestId("group");
+    act(() => { group.focus(); });
+    fireEvent.keyDown(group, { key: "Enter" });
+    expect(document.activeElement).toBe(screen.getByRole("link"));
+    await act(async () => remove());
+    expect(document.activeElement).toBe(group);
+    expect(group.hasAttribute("data-active-runtime-group")).toBe(false);
+    expect(fireEvent.keyDown(group, { key: "Tab" })).toBe(true);
   });
 
   it("changes the outer focus without rendering group content again", async () => {

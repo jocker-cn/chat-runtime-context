@@ -659,6 +659,14 @@ return () => controller.abort();
 - 不把 marker 注册为 `RuntimeFocusGroup`。
 - 如果增加快捷键，应该限定在 Rail 获得焦点时，避免抢占消息列表的上下键。
 
+### 14.1 Transcript focus lifecycle
+
+`RuntimeFocusGroup` enters inner interaction mode only when Enter targets the group container itself; Enter bubbling from a business control retains that control's native behavior. Moving focus within the group preserves inner mode; moving outside resets it without pulling focus back. Escape exits inner mode and focuses the group container. Existing inner-mode Tab suppression and arrow-key navigation remain unchanged.
+
+`InnerFocusManager` reconciles controls on its own renders and observes child-only DOM updates with a scoped `MutationObserver`. Added and replaced controls receive the current mode's tabindex; removed controls release their saved attributes and references. Relevant attribute changes (`tabindex`, `href`, `disabled`, `hidden`, `aria-hidden`, `inert`, `contenteditable`, `role`) are reconciled as well. Text-only streaming and the manager's own tabindex writes do not trigger another scan.
+
+When the focused control disappears, navigation recovers to a remaining control or the group container only if focus has not moved to another UI. Business actions that open a dialog or focus an input must not be followed by forced refocusing. Disabling or unmounting the manager disconnects its observer and restores saved tabindex values. These responsibilities stay in the existing accessibility components, not the chat Runtime or navigation Rail.
+
 ## 15. 分阶段实施建议
 
 ### Phase 1：基础导航
