@@ -1532,3 +1532,11 @@ Agent 分为基本信息、行为指令和关联能力；MCP 与 Plugin 分别�
 删除仅起转交作用的 `ChatConversation`、`useChatConversation`、`useChatSessions` 和额外历史 DTO/Repository 文件；聊天私有 DOM 定位回到聊天页内部。组件、类型与小工具不因行数或猜测复用而单独建层。
 
 参考边界：[VS Code Workbench contributions](https://github.com/microsoft/vscode/wiki/Source-Code-Organization) 强调功能内部实现不被其他模块穿透；[Bulletproof React 项目结构](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md) 按功能集中代码；[Theia Widgets](https://theia-ide.org/docs/widgets/) 将布局宿主与功能视图分离。这里借鉴模块职责与入口约束，不照搬其完整框架。
+
+### 21.5 消息正文临时编辑
+
+> 实施更新：2026-10-18。仅在 `/extension-poc` 开启，能力位于消息展示层，core 与 Runtime 协议保持不变。
+
+已结束生成的 Assistant 文本消息提供“编辑”入口，在当前 Card 正文位置展开 Tiptap 源码编辑器。“编辑源码 / 预览”切换保留草稿与编辑器实例，预览复用 `MarkdownMessage`；长内容在编辑区内部滚动。完整 Markdown 通过文本节点载入，不做 HTML 或富文本往返转换。编辑期间收起原有消息操作，保存或取消后恢复，并将焦点返回编辑按钮。
+
+草稿由 `MessageContentEditor` 内部维护；保存后的正文仅保存在 Assistant Card 的 React 本地状态中。保存更新显示，取消丢弃当前草稿，再次编辑载入最近保存的正文。刷新页面或消息组件卸载后清除临时修改。原始 `message`、历史存储、后续 LLM 上下文、`Chat from here`、已有引用及导航预览均继续使用原始内容。

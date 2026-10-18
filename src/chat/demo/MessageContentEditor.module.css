@@ -1,0 +1,92 @@
+.editor {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  overflow: hidden;
+}
+
+.tabs,
+.actions {
+  display: flex;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-2) var(--ui-space-3);
+}
+
+.tabs {
+  background: var(--ui-sidebar);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.actions {
+  border-top: 1px solid var(--ui-border);
+  justify-content: flex-end;
+}
+
+.editor button {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface);
+  color: var(--ui-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ui-text-md);
+  padding: var(--ui-space-1) var(--ui-space-3);
+}
+
+.editor button:hover,
+.tabs button[aria-pressed="true"] {
+  background: var(--ui-selected);
+  color: var(--ui-text);
+}
+
+.editor button:focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+.editor .save {
+  background: var(--ui-primary);
+  border-color: var(--ui-primary);
+  color: var(--ui-on-primary);
+}
+
+.editor .save:hover {
+  opacity: var(--ui-opacity-hover);
+}
+
+.editor button:disabled {
+  cursor: default;
+  opacity: var(--ui-opacity-disabled);
+}
+
+.source,
+.preview {
+  box-sizing: border-box;
+  min-height: 160px;
+  max-height: min(440px, 40dvh);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  padding: var(--ui-space-3);
+}
+
+.source {
+  font-family: var(--ui-font-mono);
+  line-height: var(--ui-leading-relaxed);
+  outline: none;
+  white-space: pre-wrap;
+}
+
+.source:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ui-focus);
+}
+
+.source :global(pre) {
+  font: inherit;
+  margin: 0;
+  white-space: inherit;
+}
+
+.source :global(code) {
+  font: inherit;
+}

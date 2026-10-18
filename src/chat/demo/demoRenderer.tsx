@@ -1,4 +1,4 @@
-import { useId, useMemo } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   createFrameRenderer,
   useChatExtensions,
@@ -19,6 +19,7 @@ import {
   type ThinkingActivityPhase,
 } from "./thinkingActivity";
 import { ApiRequestAction } from "./ApiRequestAction";
+import { MessageContentEditor } from "./MessageContentEditor";
 
 export interface DemoChatExtensions extends ChatExtensionStore {
   retryUserError?: (
@@ -31,6 +32,7 @@ export interface DemoChatExtensions extends ChatExtensionStore {
   ) => void;
   resolveMessageById?: (messageId: string) => DemoMessage | undefined;
   navigateToMessage?: (messageId: string) => void;
+  allowMessageEditing?: boolean;
 }
 
 export const demoRenderer = createFrameRenderer<DemoMessage>({
@@ -146,9 +148,26 @@ function AssistantMessageCard({
   context,
 }: FrameCardProps<DemoMessage>) {
   const selectBranch = useSelectBranch();
-  const { chatFromHere } = useChatExtensions<DemoChatExtensions>();
+  const { chatFromHere, allowMessageEditing } = useChatExtensions<DemoChatExtensions>();
   const isSelected = context.isSelectedBranch;
   const contentId = useId();
+  const [savedContent, setSavedContent] = useState<string>();
+  const [editing, setEditing] = useState(false);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  const canEdit = allowMessageEditing && typeof message.content === "string" &&
+    (context.branchStatus === "completed" || context.branchStatus === "cancelled" || context.branchStatus === "error");
+  const displayContent = savedContent ?? getDemoMessageText(message);
+  useLayoutEffect(() => {
+    if (!editing && restoreFocus.current) {
+      restoreFocus.current = false;
+      editButtonRef.current?.focus({ preventScroll: true });
+    }
+  }, [editing]);
+  const finishEditing = () => {
+    restoreFocus.current = true;
+    setEditing(false);
+  };
   return (
     <article
       className="message-card message-card-assistant"
@@ -158,35 +177,47 @@ function AssistantMessageCard({
       aria-describedby={contentId}
     >
       <div id={contentId}>
-        <MarkdownMessage
-          content={getDemoMessageText(message)}
-          actions={message.actions}
-        />
+        {editing ? <MessageContentEditor
+          content={displayContent}
+          onSave={(content) => {
+            setSavedContent(content);
+            finishEditing();
+          }}
+          onCancel={finishEditing}
+        /> : <MarkdownMessage content={displayContent} actions={message.actions} />}
       </div>
-      <ApiRequestAction />
-      <div className="message-card-actions">
-        {chatFromHere ? (
+      <div hidden={editing}>
+        <ApiRequestAction />
+        <div className="message-card-actions">
+          {canEdit ? (
+            <button ref={editButtonRef} type="button" aria-label="编辑消息"
+              onClick={() => setEditing(true)}>
+              编辑
+            </button>
+          ) : null}
+          {chatFromHere ? (
+            <button
+              type="button"
+              onClick={() => chatFromHere(message, context)}
+            >
+              Chat from here
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={() => chatFromHere(message, context)}
+            disabled={isSelected}
+            onClick={() => {
+              selectBranch(context.turnId, context.branchId, {
+                score: 1,
+                metadata: {
+                  sourceId: context.sourceId,
+                },
+              });
+            }}
           >
-            Chat from here
+            {isSelected ? "已选择" : "选择"}
           </button>
-        ) : null}
-        <button
-          type="button"
-          disabled={isSelected}
-          onClick={() => {
-            selectBranch(context.turnId, context.branchId, {
-              score: 1,
-              metadata: {
-                sourceId: context.sourceId,
-              },
-            });
-          }}
-        >
-          {isSelected ? "已选择" : "选择"}
-        </button>
+        </div>
       </div>
     </article>
   );
