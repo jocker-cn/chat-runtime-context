@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
-import { acquirePendo, pendoEnabled, type PendoConfig, type Track } from "./client";
+import { acquirePendo, pendoEnabled, type AnalyticsEvent, type PendoConfig, type Track } from "./client";
 
 const PendoContext = createContext<{ enabled: boolean; track: Track }>({ enabled: false, track: () => {} });
 
@@ -11,18 +11,26 @@ export function PendoProvider({ children, ...config }: PendoConfig & { children?
   const connection = useMemo(() => {
     const options = { publicAppId, enabled, region, visitorId, accountId, environment };
     let lease: ReturnType<typeof acquirePendo>;
+    let retired = false;
+    const early: AnalyticsEvent[] = [];
     const active = pendoEnabled(options);
     const value = {
       enabled: active,
-      // Child mount effects can run before the provider's effect acquires the SDK.
-      // Deferred delivery also drops events belonging to a disposed identity.
-      track: ((event) => { if (active) queueMicrotask(() => lease?.track(event)); }) as Track,
+      track: ((event) => {
+        if (!active || retired) return;
+        // The client buffers synchronously for last-chance exit delivery.
+        if (lease) lease.track(event);
+        // Child mount effects can run before this provider's acquisition effect.
+        else if (early.length < 100) early.push(event);
+      }) as Track,
     };
     return {
       value,
       connect() {
+        retired = false;
         lease = acquirePendo(options);
-        return () => { lease?.release(); lease = undefined; };
+        early.splice(0).forEach((event) => lease?.track(event));
+        return () => { retired = true; early.length = 0; lease?.release(); lease = undefined; };
       },
     };
   }, [publicAppId, enabled, region, visitorId, accountId, environment]);

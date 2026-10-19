@@ -14,17 +14,19 @@ type TestOptions = {
   excludeAllText: boolean;
   recording: { enabled: boolean };
 };
-type TestSdk = { _q: [string, TestOptions][]; track?: ReturnType<typeof vi.fn>; teardown?: ReturnType<typeof vi.fn> };
+type TestSdk = { _q: [string, TestOptions][]; track?: ReturnType<typeof vi.fn>; flushNow?: ReturnType<typeof vi.fn>; teardown?: ReturnType<typeof vi.fn> };
 const sdk = () => (window as unknown as { pendo: TestSdk | undefined }).pendo;
 const script = () => document.querySelector<HTMLScriptElement>("script[data-pendo-sidecar]");
 const flush = async () => { await act(async () => { await Promise.resolve(); }); };
 function ready() {
   const track = vi.fn();
+  const flushNow = vi.fn();
   const teardown = vi.fn();
   sdk()!.track = track;
+  sdk()!.flushNow = flushNow;
   sdk()!.teardown = teardown;
   sdk()!._q[0]![1].events.ready();
-  return { track, teardown };
+  return { track, flushNow, teardown };
 }
 function BusinessAction({ onAction = () => {} }: { onAction?: () => void }) {
   const { track } = usePendo();
@@ -139,6 +141,129 @@ describe("portable Pendo provider", () => {
     await flush();
     // StrictMode replays consumer effects; event deduplication belongs to that consumer.
     expect(track).toHaveBeenCalledWith("mounted", { environment: "test" });
+  });
+
+  it("sends a same-turn action before the final unmount flush and teardown", async () => {
+    const view = render(<PendoProvider {...config}><BusinessAction/></PendoProvider>);
+    const { track, flushNow, teardown } = ready();
+    fireEvent.click(view.getByRole("button"));
+    view.unmount();
+    await flush();
+    expect(track).toHaveBeenCalledExactlyOnceWith("order_created", { source: "checkout", environment: "test" });
+    expect(flushNow).toHaveBeenCalledExactlyOnceWith({ unload: true });
+    expect(track.mock.invocationCallOrder[0]).toBeLessThan(flushNow.mock.invocationCallOrder[0]!);
+    expect(flushNow.mock.invocationCallOrder[0]).toBeLessThan(teardown.mock.invocationCallOrder[0]!);
+  });
+
+  it("drains same-turn events when hidden or leaving and removes listeners after unmount", async () => {
+    const view = render(<PendoProvider {...config}><BusinessAction/></PendoProvider>);
+    const { track, flushNow } = ready();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(flushNow).not.toHaveBeenCalled();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    fireEvent.click(view.getByRole("button"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(track).toHaveBeenCalledTimes(1);
+    expect(flushNow).toHaveBeenLastCalledWith({ hidden: true });
+    fireEvent.click(view.getByRole("button"));
+    window.dispatchEvent(new Event("pagehide"));
+    expect(track).toHaveBeenCalledTimes(2);
+    expect(flushNow).toHaveBeenLastCalledWith({ unload: true });
+    await flush();
+    expect(track).toHaveBeenCalledTimes(2); // Scheduled drains must not duplicate delivery.
+    view.unmount();
+    await flush();
+    flushNow.mockClear();
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("pagehide"));
+    expect(flushNow).not.toHaveBeenCalled();
+  });
+
+  it("does not flush or drain queued events when disabled or when identity changes", async () => {
+    const app = (enabled: boolean, visitorId = "first") => <PendoProvider {...config} enabled={enabled} visitorId={visitorId}>
+      <BusinessAction/>
+    </PendoProvider>;
+    const view = render(app(true));
+    const first = ready();
+    fireEvent.click(view.getByRole("button"));
+    view.rerender(app(false));
+    await flush();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(first.track).not.toHaveBeenCalled();
+    expect(first.flushNow).not.toHaveBeenCalled();
+    expect(first.teardown).toHaveBeenCalledOnce();
+    view.rerender(app(true));
+    const second = ready();
+    fireEvent.click(view.getByRole("button"));
+    view.rerender(app(true, "second"));
+    await flush();
+    expect(second.track).not.toHaveBeenCalled();
+    expect(second.flushNow).not.toHaveBeenCalled();
+    const third = ready();
+    fireEvent.click(view.getByRole("button"));
+    view.unmount();
+    await flush();
+    expect(third.track).toHaveBeenCalledTimes(1);
+    expect(third.flushNow).toHaveBeenCalledOnce();
+  });
+
+  it("flushes only on final release, without StrictMode replay flushing or duplicate listeners", async () => {
+    const app = (showSecond: boolean) => <StrictMode>
+      <PendoProvider {...config}><BusinessAction/></PendoProvider>
+      {showSecond && <PendoProvider {...config}><span>Second consumer</span></PendoProvider>}
+    </StrictMode>;
+    const view = render(app(true));
+    const { flushNow, teardown } = ready();
+    await flush();
+    expect(flushNow).not.toHaveBeenCalled();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(flushNow).toHaveBeenCalledTimes(1);
+    flushNow.mockClear();
+    view.rerender(app(false));
+    await flush();
+    expect(flushNow).not.toHaveBeenCalled();
+    expect(teardown).not.toHaveBeenCalled();
+    view.unmount();
+    await flush();
+    expect(flushNow).toHaveBeenCalledOnce();
+    expect(teardown).toHaveBeenCalledOnce();
+  });
+
+  it("isolates flush errors and still tears down and removes exit listeners", async () => {
+    const view = render(<PendoProvider {...config}><BusinessAction/></PendoProvider>);
+    const { track, flushNow, teardown } = ready();
+    flushNow.mockImplementation(() => { throw new Error("beacon blocked"); });
+    fireEvent.click(view.getByRole("button"));
+    window.dispatchEvent(new Event("pagehide"));
+    expect(track).toHaveBeenCalledTimes(1);
+    view.unmount();
+    await flush();
+    expect(teardown).toHaveBeenCalledOnce();
+    expect(sdk()).toBeUndefined();
+    flushNow.mockClear();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(flushNow).not.toHaveBeenCalled();
+  });
+
+  it("cannot flush before SDK readiness and drops early events on unmount or load failure", async () => {
+    for (const fail of [false, true]) {
+      const view = render(<PendoProvider {...config}><BusinessAction/></PendoProvider>);
+      const original = sdk()!;
+      const onReady = original._q[0]![1].events.ready;
+      original.flushNow = vi.fn();
+      original.track = vi.fn();
+      fireEvent.click(view.getByRole("button"));
+      window.dispatchEvent(new Event("pagehide"));
+      if (fail) script()!.dispatchEvent(new Event("error"));
+      view.unmount();
+      await flush();
+      onReady();
+      await flush();
+      expect(original.flushNow).not.toHaveBeenCalled();
+      expect(original.track).not.toHaveBeenCalled();
+      expect(sdk()).toBeUndefined();
+    }
   });
 
   it("drops retained callbacks after unmount and isolates SDK/network failures", async () => {

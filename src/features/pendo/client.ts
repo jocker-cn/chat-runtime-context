@@ -18,11 +18,12 @@ export type Track = (event: AnalyticsEvent) => void;
 interface PendoSdk {
   _q?: unknown[][];
   track?(name: string, properties: Record<string, unknown>): void;
+  flushNow?(options?: { hidden?: boolean; unload?: boolean }): void;
   teardown?(): void;
 }
 
 type PendoWindow = Window & { pendo?: PendoSdk };
-let shared: { track: Track; stop(): void; references: number; key: string } | undefined;
+let shared: { track: Track; stop(flushBeforeStop?: boolean): void; references: number; key: string } | undefined;
 const memoryVisitors = new Map<string, string>();
 
 export function pendoEnabled(config: PendoConfig) {
@@ -32,7 +33,16 @@ export function pendoEnabled(config: PendoConfig) {
 
 /** Reference-counted leases keep StrictMode and sibling sidecars on one SDK. */
 export function acquirePendo(config: PendoConfig): { track: Track; release(): void } | undefined {
-  if (typeof window === "undefined" || !pendoEnabled(config)) return;
+  if (typeof window === "undefined") return;
+  if (!pendoEnabled(config)) {
+    // On a config update React releases the old effect before connecting the new
+    // disabled one. Cancel its deferred exit flush: disabling must not send data.
+    if (shared?.references === 0) {
+      shared.stop();
+      shared = undefined;
+    }
+    return;
+  }
   try {
     const key = JSON.stringify([config.publicAppId, config.region ?? "io", config.visitorId, config.accountId, config.environment]);
     if (shared && shared.key !== key) {
@@ -55,7 +65,7 @@ export function acquirePendo(config: PendoConfig): { track: Track; release(): vo
         queueMicrotask(() => {
           if (client.references === 0 && shared === client) {
             shared = undefined;
-            client.stop();
+            client.stop(true);
           }
         });
       },
@@ -75,26 +85,38 @@ function startPendo(config: PendoConfig) {
   let ready = false;
   const pending: AnalyticsEvent[] = [];
   const script = document.createElement("script");
-  const send: Track = (event) => {
-    // Always leave the publisher's call stack before invoking third-party code.
-    queueMicrotask(() => {
-      if (stopped) return;
-      if (!ready) {
-        if (pending.length < 100) pending.push(event);
-        return;
-      }
+  const drain = () => {
+    if (stopped || !ready) return;
+    for (const event of pending.splice(0)) {
       try {
         host.pendo?.track?.(event.name, {
           ...event.properties,
           ...(config.environment ? { environment: config.environment } : {}),
         });
       } catch { /* Analytics must not affect the UI. */ }
-    });
+    }
   };
-  const stop = () => {
+  const send: Track = (event) => {
+    if (stopped || (!ready && pending.length >= 100)) return;
+    // Store synchronously so a same-turn pagehide/unmount can drain the event.
+    // Third-party calls normally run outside the business publisher's call stack.
+    pending.push(event);
+    queueMicrotask(drain);
+  };
+  const flush = (options: { hidden?: boolean; unload?: boolean }) => {
+    if (stopped || !ready) return;
+    drain();
+    try { host.pendo?.flushNow?.(options); } catch { /* Last-chance delivery is best effort. */ }
+  };
+  const onHidden = () => { if (document.visibilityState === "hidden") flush({ hidden: true }); };
+  const onPageHide = () => flush({ unload: true });
+  const stop = (flushBeforeStop = false) => {
     if (stopped) return;
+    if (flushBeforeStop) flush({ unload: true });
     stopped = true;
     pending.length = 0;
+    document.removeEventListener("visibilitychange", onHidden);
+    window.removeEventListener("pagehide", onPageHide);
     script.remove();
     if (host.pendo?._q) host.pendo._q.length = 0;
     try { host.pendo?.teardown?.(); } catch { /* Best-effort SDK cleanup. */ }
@@ -122,14 +144,16 @@ function startPendo(config: PendoConfig) {
     events: { ready: () => {
       if (stopped) return;
       ready = true;
-      pending.splice(0).forEach(send);
+      queueMicrotask(drain);
     } },
   };
   host.pendo = { _q: [["initialize", options]] };
   script.async = true;
   script.dataset.pendoSidecar = "true";
   script.src = `https://cdn.${region === "io" ? "pendo.io" : `${region}.pendo.io`}/agent/static/${appId}/pendo.js`;
-  script.onerror = stop;
+  script.onerror = () => stop();
+  document.addEventListener("visibilitychange", onHidden);
+  window.addEventListener("pagehide", onPageHide);
   try { document.head.append(script); } catch { stop(); }
   return { track: send, stop };
 }

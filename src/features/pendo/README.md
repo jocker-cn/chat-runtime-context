@@ -6,6 +6,8 @@
 ## 一次挂载，按 market 开关
 
 `PendoProvider` 挂在 App 或需要分析的业务 layout，包住对应子树；不必每个页面挂一次。
+在 Next.js 中放在持久的 layout/应用 Provider 组合层，避免因聊天 session 切换而改变 Provider 的 key 或重新挂载。
+这是本项目对 Pendo 浏览器 SDK 的 React Context 封装；SDK 连接属于应用/浏览器页面，聊天 session 的观察与清理属于业务组件。
 保持 Provider 挂载，通过 `enabled` 控制，不需要在每个埋点处判断 market。
 `enabled` 默认 `false`；Public App ID 缺失/无效时也保持关闭。
 
@@ -91,7 +93,8 @@ export function ExportButton({ exportReport }: { exportReport(): void }) {
 
 不需要在调用前判断 `enabled`。关闭、没有 Provider、无效配置、SDK 被拦截或上报异常时，分析调用不会阻止原有业务操作。
 `enabled=false` 时不加载 SDK、不缓存或发送业务事件；切回启用不会补发关闭期间的事件。
-若原来已启用，关闭后释放此 Provider 的连接；最后一个使用方退出时清理脚本/SDK并丢弃未发送事件。
+若原来已启用，关闭后释放此 Provider 的连接；最后一个使用方关闭时清理脚本/SDK并丢弃封装中的未发送事件，不显式 flush。
+正常卸载最后一个 Provider 时则在清理前尽力 flush，详见下文；配置/身份切换不执行这次卸载 flush。
 同一页面建议只有一个 Provider；相同配置可共享连接，但不同配置的并行 Provider 不会抢占已运行的 SDK。
 
 没有 queue 时，自定义“发送”事件可以放在现有业务实际接收提交的位置；“完成/失败”事件放在最终结果回调或现有状态订阅中。
@@ -116,11 +119,24 @@ export function ExportButton({ exportReport }: { exportReport(): void }) {
 
 SDK 就绪前最多缓冲 100 个自定义事件；脚本失败后丢弃，不自动重试。
 清理在微任务中确认最后一个连接退出，以支持 React StrictMode 的 effect 重放。
+已启用且 SDK 就绪时，模块监听 `visibilitychange` 和 `pagehide`：页面隐藏时调用
+`flushNow({ hidden: true })`，页面离开时调用 `flushNow({ unload: true })`。
+最后一个 Provider 正常卸载时也先调用 `flushNow({ unload: true })`，再执行 teardown、移除脚本和监听器。
+flush 前会同步把封装中已接收的事件交给 SDK，减少“track 后同一轮任务立刻离开”的丢失窗口；通常的业务 track 仍将 SDK 调用延后到微任务。
+market 禁用、无效配置、身份/应用切换和脚本加载失败时丢弃旧缓冲，不显式 flush；StrictMode 重挂载与仍有共享使用方时不做卸载 flush。
+`flushNow` 返回 void，调用不等待服务端确认。SDK 未就绪、网络故障或浏览器被强制结束时仍可能丢失；不会阻止导航、延迟业务或为其添加重试循环。
+SDK 不支持 flushNow 或调用抛错时按 best effort 忽略，仍继续清理。
 StrictMode 会重放业务自己的 mount effect；需要恰好一次语义的业务观察器须自行去重，模块不会按同名事件全局去重。
 本目录不绑定构建器的 HMR 钩子；修改 SDK 模块实现后完整刷新浏览器。
 
 保留原有采集限制：禁止元素文本、focus/change/submit 自动事件、Guides 和 Session Replay；URL 查询参数和 hash 清除。
 自动 load/click 仍启用。自定义 `properties` 由调用方提供，模块不会自动过滤其中的敏感内容，也不会自动屏蔽 URL pathname 中的业务数据。
+
+自动点击不会出现在 Track Events 列表。调试时进入 Settings → Subscription settings → Applications → 当前应用 → Raw Events 查看 click；
+若需按钮的使用统计，在 Product → Features 中通过 Tag Features 标记按钮并命名，再查看 Feature 详情或添加到 Dashboard。
+Raw Events 高流量时可能抽样展示；必要时使用 Pendo SDK debugger 的事件日志验证采集。
+参考：[事件类型与后台入口](https://support.pendo.io/hc/en-us/articles/23335876011803-Events-overview)、
+[flushNow API](https://web-sdk.pendo.io/public/events/#flushnowoptions--void)。
 
 ## 移除
 

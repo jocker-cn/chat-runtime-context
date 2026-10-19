@@ -1549,4 +1549,6 @@ Agent 分为基本信息、行为指令和关联能力；MCP 与 Plugin 分别�
 
 `src/chat/demo/extension-poc/analytics/` 拥有当前 demo 的 Vite 配置读取、本地路由限制，以及 chatData、Runtime、queue 的只读观察和事件口径。布局只增加分析装配点，不接管会话/Runtime 生命周期。`PendoChatSidecar` 属于该 demo 的可选业务适配器，实际业务无需迁移 queue 或此组件即可使用通用 Provider；自定义事件可接在现有业务回调或业务自己的观察器中。
 
+Provider 放在持久的应用布局，不以聊天 session 为 SDK 生命周期。SDK 就绪后在页面隐藏/离开及最后一个 Provider 正常卸载前尽力 flush；market 禁用、配置/身份变更及加载失败时丢弃封装缓冲，不显式 flush。监听器由共享 SDK 连接拥有，最后释放时清理；StrictMode 重挂载不触发卸载发送。
+
 接入参数、Next.js 示例、采集限制和移除步骤见 [Pendo 模块说明](src/features/pendo/README.md)。core、消息、提交/取消处理和 WebSocket 协议保持原有职责。
