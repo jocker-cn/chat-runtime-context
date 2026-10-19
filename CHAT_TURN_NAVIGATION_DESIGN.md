@@ -1540,3 +1540,13 @@ Agent 分为基本信息、行为指令和关联能力；MCP 与 Plugin 分别�
 已结束生成的 Assistant 文本消息提供“编辑”入口，在当前 Card 正文位置展开 Tiptap 源码编辑器。“编辑源码 / 预览”切换保留草稿与编辑器实例，预览复用 `MarkdownMessage`；长内容在编辑区内部滚动。完整 Markdown 通过文本节点载入，不做 HTML 或富文本往返转换。编辑期间收起原有消息操作，保存或取消后恢复，并将焦点返回编辑按钮。
 
 草稿由 `MessageContentEditor` 内部维护；保存后的正文仅保存在 Assistant Card 的 React 本地状态中。保存更新显示，取消丢弃当前草稿，再次编辑载入最近保存的正文。刷新页面或消息组件卸载后清除临时修改。原始 `message`、历史存储、后续 LLM 上下文、`Chat from here`、已有引用及导航预览均继续使用原始内容。
+
+### 21.6 可选 Pendo 接入边界
+
+> 结构更新：2026-10-19。通用分析接入与本地聊天业务观察分开，支持迁移到 Next.js + React + TypeScript。
+
+`src/features/pendo/` 仅拥有浏览器 SDK、身份、连接清理和通用事件发送。宿主在 App 或业务布局挂载一次 `PendoProvider`，通过参数提供 Public App ID、区域、身份、环境及 enabled；不在模块中读取构建器环境变量或判断 market。宿主合并 market 等条件后传入 enabled，关闭期间的 track 为 no-op，切换时释放旧连接并丢弃旧缓冲。
+
+`src/chat/demo/extension-poc/analytics/` 拥有当前 demo 的 Vite 配置读取、本地路由限制，以及 chatData、Runtime、queue 的只读观察和事件口径。布局只增加分析装配点，不接管会话/Runtime 生命周期。`PendoChatSidecar` 属于该 demo 的可选业务适配器，实际业务无需迁移 queue 或此组件即可使用通用 Provider；自定义事件可接在现有业务回调或业务自己的观察器中。
+
+接入参数、Next.js 示例、采集限制和移除步骤见 [Pendo 模块说明](src/features/pendo/README.md)。core、消息、提交/取消处理和 WebSocket 协议保持原有职责。

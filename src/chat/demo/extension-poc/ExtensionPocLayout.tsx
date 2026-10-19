@@ -5,6 +5,7 @@ import {AgentSettings, McpSettings, PluginSettings, SkillSettings} from "./Exten
 import type {ExtensionKind} from "./extensionModel";
 import styles from "./ExtensionPocPage.module.css";
 import "../../../theme/tokens.css";
+import {ExtensionPocAnalytics, PendoWorkspaceSidecar} from "./analytics/sidecars";
 
 export function ExtensionPocLayout() {
     const [sessionId, setSessionId] = useState<string>();
@@ -29,7 +30,8 @@ export function ExtensionPocLayout() {
         if (kind === "skill") setSkillVisited(true);
     };
     return (
-        <main className={styles.page}>
+        <ExtensionPocAnalytics><main className={styles.page}>
+            <PendoWorkspaceSidecar view={activeFeature ?? "chat"}/>
             <ExtensionPocSidebar activeSessionId={sessionId} activeFeature={activeFeature}
                                  onSelectSession={openChat} onSelectFeature={openFeature} canNavigate={canNavigate}/>
             <div className={styles.contentArea}>
@@ -43,6 +45,6 @@ export function ExtensionPocLayout() {
                     {activeFeature === "plugin" && <PluginSettings onDirtyChange={onDirtyChange}/>}
                 </section>
             </div>
-        </main>
+        </main></ExtensionPocAnalytics>
     );
 }

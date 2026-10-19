@@ -10,6 +10,7 @@ import {createExtensionPocRuntime, readChatHistory, type ChatSubmission} from ".
 import {chatData} from "./chatHistory";
 import {ExtensionComposer} from "./ExtensionComposer";
 import styles from "./ExtensionPocPage.module.css";
+import {PendoChatSidecar} from "./analytics/sidecars";
 
 /** A single session page. History, Runtime and message interactions stay here. */
 export function ExtensionPocPage({sessionId}: { sessionId: string }) {
@@ -100,6 +101,7 @@ export function ExtensionPocPage({sessionId}: { sessionId: string }) {
 
     return (
         <section className={styles.chatColumn} aria-label={`聊天：${title}`}>
+            <PendoChatSidecar runtime={controller.runtime} queue={controller.queue} secondaryEnabled={secondaryEnabled}/>
             <header className={styles.chatHeader}>
                 <div>
                     <span className={styles.overline}>COMPARE AGENT RUNTIME</span>
