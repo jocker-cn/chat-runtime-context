@@ -101,6 +101,83 @@ export function ExportButton({ exportReport }: { exportReport(): void }) {
 这些语义由业务定义。自动点击采集本身不能判断一次请求是否成功，不需要为此先迁移 queue。
 也可以在业务目录实现一个只读订阅的 sidecar，再调用 `track`；通用目录不保存业务事件名/观察器。
 
+## AI 对话事件：由业务节点主动提交
+
+`usePendo().trackAgent(eventType, agenticProperties, properties?)` 封装 Pendo Conversations API，
+与普通 `track` 共用现有 Provider、SDK、就绪前缓冲、禁用保护和退出 flush。
+无需增加 Provider、queue、Runtime 或 `PendoChatSidecar`；通用模块不订阅消息、不接管 SSE，也不判断回答何时结束。
+现有 demo 不会自动上传任何对话正文；只有宿主显式调用 `trackAgent` 才提交该内容。
+
+先在 Pendo **Product → Agent Analytics → Add agent** 中为目标 App 创建 Agent，启用 **Full conversations**，取得其 Agent ID。
+`agentId` 是 Pendo Agent 标识，不是 `publicAppId`、模型名称或业务内部 Agent 名称。
+
+```tsx
+"use client";
+
+import { usePendo, type AgentReactionProperties } from "@/features/pendo";
+
+// 示例业务 hook；也可以直接把 trackAgent 调用放进现有聊天组件的回调。
+export function useChatAnalytics(pendoAgentId: string) {
+  const { trackAgent, track } = usePendo();
+
+  // 1. 业务实际接收一条用户提交时。
+  function onPromptSubmitted(sessionId: string, messageId: string, text: string) {
+    trackAgent("prompt", {
+      agentId: pendoAgentId, conversationId: sessionId, messageId, content: text,
+    });
+  }
+
+  // 2. 你们自己的回答结束节点：传入已经汇总完成的最终文本。
+  function onAnswerCompleted(sessionId: string, messageId: string, finalText: string, elapsedMs: number) {
+    trackAgent("agent_response", {
+      agentId: pendoAgentId, conversationId: sessionId, messageId, content: finalText,
+    }, { duration: elapsedMs }); // 可选的普通事件属性，单位由业务约定
+  }
+
+  // 3. 用户评价时，复用被评价回答的 messageId。
+  function onReaction(sessionId: string, responseMessageId: string, reaction: AgentReactionProperties["content"]) {
+    trackAgent("user_reaction", {
+      agentId: pendoAgentId, conversationId: sessionId,
+      messageId: responseMessageId, content: reaction, // positive / negative / unreact
+    });
+  }
+
+  // 失败/取消仍走普通业务事件，不伪造一条已完成的 AI 回答。
+  function onRunFailed() {
+    track({ name: "ai_run_finished", properties: { outcome: "error" } });
+  }
+
+  return { onPromptSubmitted, onAnswerCompleted, onReaction, onRunFailed };
+}
+```
+
+在聊天组件中调用示例 hook，把返回的函数接到业务已有节点即可；不在模块顶层调用 hook 或执行埋点。
+
+| API / 字段 | 约定 |
+| --- | --- |
+| `trackAgent("prompt", ...)` | 每条实际提交的提问调用一次，不是在每次输入或按钮渲染时调用 |
+| `trackAgent("agent_response", ...)` | 每条完整回答调用一次；以业务明确的结束节点为准，不按 SSE 分片或连接关闭上报 |
+| `trackAgent("user_reaction", ...)` | 评价及取消评价时调用；`content` 类型限制为 positive / negative / unreact |
+| `agentId` / `conversationId` / `messageId` / `content` | 必传，均为字符串；不会由封装随机生成或推断 |
+| `conversationId` | 同一聊天会话一致；若不同环境/租户的会话 ID 可能重复，由宿主添加稳定前缀 |
+| `messageId` | 同一会话内消息唯一，提问和回答不同；反馈使用对应回答 ID；重试时保持原消息 ID |
+| `agentModelsUsed` / `toolsUsed` / `agentSubagentsUsed` | 可选字符串数组，封装不推断模型、工具或子 Agent |
+| `agentFilesUploaded` | 可选 `{ type, name }[]`，只传文件元信息，不传文件正文 |
+| `agentUserReactionComments` | 仅评价事件，可选字符串数组 |
+| 第三个参数 `properties` | 可选普通事件属性；配置了 environment 时封装自动附加，以 Provider 配置值为准 |
+
+导出的 `TrackAgent`、`AgentMessageProperties`、`AgentReactionProperties` 类型可直接用于业务回调参数。
+同一会话不同轮次保持 conversationId，消息 ID 稳定；封装不本地去重，不补发历史消息，也不在失败后自动重试。
+挂载 effect 可能在 StrictMode 重放，业务必须避免把历史加载或重复结束通知当作新消息。
+SDK 未提供 `trackAgent` 或调用抛错时安全忽略，不降级为普通 `track`，因为后者不能填充 Agent Analytics。
+
+`content`、文件名和文字反馈由调用方主动提供；现有 `excludeAllText: true` 只限制自动 DOM 文本采集，不能屏蔽这些主动上传的内容。
+需要按环境/market 单独控制 AI 内容或脱敏时，由宿主在这些业务调用前按自身配置处理；普通埋点可继续使用。
+本封装只提供对话事件，不生成后端 trace、token 数或工具执行轨迹。
+
+参考：[Conversations API](https://support.pendo.io/hc/en-us/articles/41103585431707-Send-conversation-events-using-the-client-side-or-server-side-API)、
+[对话字段](https://support.pendo.io/hc/en-us/articles/51793357149467-Conversation-properties)。
+
 ## 参数和生命周期
 
 | 参数 | 含义 |
@@ -117,7 +194,8 @@ export function ExportButton({ exportReport }: { exportReport(): void }) {
 未传 `visitorId` 时不会继承此 demo 旧版本的 `local-…` 身份。
 已有其他来源的 `window.pendo` 时不会接管或清理它；宿主应避免重复安装。
 
-SDK 就绪前最多缓冲 100 个自定义事件；脚本失败后丢弃，不自动重试。
+SDK 就绪前最多缓冲 100 个事件（普通 track 与 trackAgent 共用额度及顺序）；脚本失败后丢弃，不自动重试。
+AI 对话入队时复制消息字段及模型/工具/附件/评价数组，避免调用方随后修改消息对象而改变已接收的事件。
 清理在微任务中确认最后一个连接退出，以支持 React StrictMode 的 effect 重放。
 已启用且 SDK 就绪时，模块监听 `visibilitychange` 和 `pagehide`：页面隐藏时调用
 `flushNow({ hidden: true })`，页面离开时调用 `flushNow({ unload: true })`。
@@ -140,5 +218,5 @@ Raw Events 高流量时可能抽样展示；必要时使用 Pendo SDK debugger �
 
 ## 移除
 
-先将 `enabled` 设为 false 即可停用。彻底移除时删掉 Provider、业务里的 `usePendo`/track 调用或观察器，再删除本目录。
+先将 `enabled` 设为 false 即可停用。彻底移除时删掉 Provider、业务里的 `usePendo`/track/trackAgent 调用或观察器，再删除本目录。
 通用模块不会修改业务控制器、请求、消息或状态。

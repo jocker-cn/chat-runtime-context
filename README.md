@@ -33,6 +33,10 @@ VITE_PENDO_REGION=io
 `.env.local` 已忽略；新环境默认关闭，不会自动发送测试数据。
 
 **迁移到 Next.js + React + TypeScript：只复制 `src/features/pendo/`。**
+
+AI 对话采集使用 `usePendo().trackAgent`，在业务发送、明确结束及评价节点主动提交；无需迁移 queue 或聊天 Sidecar。
+它与普通 `track` 共用禁用保护、SDK 就绪前缓冲和退出 flush；现有 demo 不自动上传对话正文。
+参数与完整示例见 [Pendo 模块说明](src/features/pendo/README.md#ai-对话事件由业务节点主动提交)。
 完整接入与 market 开关示例见 [Pendo 接入说明](src/features/pendo/README.md)。
 该目录只负责 SDK、身份和通用上报，通过 `PendoProvider` 参数接收配置，
 不读取 Vite / Next 环境变量，也不依赖 chatData、queue、Runtime 或业务事件名。

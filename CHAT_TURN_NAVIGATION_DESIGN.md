@@ -1543,12 +1543,14 @@ Agent 分为基本信息、行为指令和关联能力；MCP 与 Plugin 分别�
 
 ### 21.6 可选 Pendo 接入边界
 
-> 结构更新：2026-10-19。通用分析接入与本地聊天业务观察分开，支持迁移到 Next.js + React + TypeScript。
+> 结构更新：2026-10-20。通用分析接入与本地聊天业务观察分开，支持迁移到 Next.js + React + TypeScript。
 
 `src/features/pendo/` 仅拥有浏览器 SDK、身份、连接清理和通用事件发送。宿主在 App 或业务布局挂载一次 `PendoProvider`，通过参数提供 Public App ID、区域、身份、环境及 enabled；不在模块中读取构建器环境变量或判断 market。宿主合并 market 等条件后传入 enabled，关闭期间的 track 为 no-op，切换时释放旧连接并丢弃旧缓冲。
 
 `src/chat/demo/extension-poc/analytics/` 拥有当前 demo 的 Vite 配置读取、本地路由限制，以及 chatData、Runtime、queue 的只读观察和事件口径。布局只增加分析装配点，不接管会话/Runtime 生命周期。`PendoChatSidecar` 属于该 demo 的可选业务适配器，实际业务无需迁移 queue 或此组件即可使用通用 Provider；自定义事件可接在现有业务回调或业务自己的观察器中。
 
 Provider 放在持久的应用布局，不以聊天 session 为 SDK 生命周期。SDK 就绪后在页面隐藏/离开及最后一个 Provider 正常卸载前尽力 flush；market 禁用、配置/身份变更及加载失败时丢弃封装缓冲，不显式 flush。监听器由共享 SDK 连接拥有，最后释放时清理；StrictMode 重挂载不触发卸载发送。
+
+通用 API 另提供 `usePendo().trackAgent(eventType, agenticProperties, properties?)`，用于主动提交 prompt、agent_response 和 user_reaction；与普通 track 共享缓冲顺序、禁用保护和 flush。业务拥有 Pendo Agent ID、会话/消息 ID、正文及结束语义，在自身发送/明确结束/反馈节点调用；封装不监听 SSE、不推断结束、不自动上传历史或对话，也不依赖 queue。现有 demo 的只读观察器继续只发送无正文的业务统计。
 
 接入参数、Next.js 示例、采集限制和移除步骤见 [Pendo 模块说明](src/features/pendo/README.md)。core、消息、提交/取消处理和 WebSocket 协议保持原有职责。
