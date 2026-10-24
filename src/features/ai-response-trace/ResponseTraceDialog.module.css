@@ -1,0 +1,35 @@
+.backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: var(--ui-space-5); background: var(--ui-backdrop); color: var(--ui-text); font: var(--ui-text-base)/var(--ui-leading-base) var(--ui-font); }
+.dialog { width: min(1120px, 100%); max-height: min(680px, calc(100dvh - 40px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); background: var(--ui-surface); box-shadow: var(--ui-shadow-dialog); outline: none; }
+.header { display: flex; align-items: center; justify-content: space-between; padding: var(--ui-space-2) var(--ui-space-4); border-bottom: 1px solid var(--ui-border); }
+.header h2 { margin: 0; font-size: var(--ui-text-base); }
+.dialog button { cursor: pointer; font: inherit; color: var(--ui-text-secondary); background: transparent; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); padding: var(--ui-space-1) var(--ui-space-2); text-align: left; }
+.dialog button:hover { background: var(--ui-selected); color: var(--ui-text); }
+.dialog button:focus-visible, .rawDetails summary:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+.overview, .details { overflow: auto; min-height: 0; flex: 1; }
+.chart { padding: var(--ui-space-3) var(--ui-space-4); border-bottom: 1px solid var(--ui-border); }
+.chartTitle { color: var(--ui-text-muted); font-size: var(--ui-text-md); }
+.chartTitle strong { margin-left: var(--ui-space-2); color: var(--ui-text); }
+.axis { display: flex; justify-content: space-between; margin-left: 170px; margin-right: 86px; color: var(--ui-text-muted); font-size: var(--ui-text-xs); margin-bottom: var(--ui-space-1); }
+.chartRow { display: grid; grid-template-columns: 160px minmax(0, 1fr) 76px; align-items: center; gap: var(--ui-space-2); min-height: 22px; }
+.eventName { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--ui-font-mono); font-size: var(--ui-text-md); }
+.track { position: relative; height: 20px; border-left: 1px solid var(--ui-border); border-right: 1px solid var(--ui-border); background: repeating-linear-gradient(to right, transparent 0, transparent calc(25% - 1px), var(--ui-border) 25%); }
+.dialog .bar { position: absolute; top: 4px; height: 12px; min-width: 3px; max-width: 100%; transform: translateX(-1px); padding: 0; border: 0; border-radius: 1px; }
+.dialog .bar:hover { filter: brightness(.85); }
+.dialog .color0 { background: #6d94df; }
+.dialog .color1 { background: #69b78c; }
+.dialog .color2 { background: #9c83b6; }
+.dialog .color3 { background: #d49648; }
+.duration { color: var(--ui-text-muted); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; font-size: var(--ui-text-xs); }
+.events { border-collapse: collapse; table-layout: fixed; width: 100%; font-size: var(--ui-text-md); }
+.events th { text-align: left; color: var(--ui-text-muted); font-weight: var(--ui-weight-medium); background: var(--ui-sidebar); padding: var(--ui-space-2) var(--ui-space-4); }
+.events th:first-child { width: 180px; }
+.events td { border-bottom: 1px solid var(--ui-border); padding: var(--ui-space-2) var(--ui-space-4); }
+.events tr:hover { background: var(--ui-sidebar); }
+.dialog .content { display: block; width: 100%; padding: 0; border: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-text); border-radius: 0; }
+.details { padding: var(--ui-space-3) var(--ui-space-4); outline: none; }
+.details h3 { font-family: var(--ui-font-mono); font-size: var(--ui-text-base); margin: var(--ui-space-3) 0; overflow-wrap: anywhere; }
+.data { font: var(--ui-text-md)/var(--ui-leading-relaxed) var(--ui-font-mono); background: var(--ui-sidebar); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); margin: 0; padding: var(--ui-space-3); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; }
+.rawDetails { margin-top: var(--ui-space-3); }
+.rawDetails summary { cursor: pointer; color: var(--ui-text-muted); margin-bottom: var(--ui-space-2); }
+.empty { color: var(--ui-text-muted); padding: var(--ui-space-3) var(--ui-space-4); font-size: var(--ui-text-md); }
+@media (max-width: 640px) { .backdrop { padding: var(--ui-space-2); } .dialog { height: calc(100dvh - 16px); } .chartRow { grid-template-columns: 100px minmax(0, 1fr) 60px; } .axis { margin-left: 110px; margin-right: 70px; } .events th:first-child { width: 130px; } .events th, .events td { padding-left: var(--ui-space-3); padding-right: var(--ui-space-3); } }

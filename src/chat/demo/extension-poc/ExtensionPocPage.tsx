@@ -75,6 +75,8 @@ export function ExtensionPocPage({sessionId}: { sessionId: string }) {
     }, [controller, secondaryEnabled]);
     const extensions = useMemo<DemoChatExtensions>(() => Object.assign(createChatExtensionStore(), {
         allowMessageEditing: true,
+        responseTraces: controller.responseTraces,
+        resolveResponseTrace: controller.resolveResponseTrace,
         resolveMessageById: (id: string) => findChatMessageById(controller.runtime, id),
         chatFromHere: (message: DemoMessage) => setReference({id: message.id, text: getDemoMessageText(message)}),
         navigateToMessage: (id: string) => {

@@ -1,8 +1,10 @@
 # Agent、Skill、MCP 正式配置与持久化设计
 
-> 日期：2026-10-02。状态：设计提案，尚未迁移现有 POC 或接入 BE。
+> 初始设计：2026-10-02；进度核对：2026-10-24。状态：部分实现。基础领域/数据层与 Skill 文件包流程已落地；Agent/MCP 正式页面、完整业务迁移和 BE 真实执行尚未完成。
 >
 > 承接 `CHAT_TURN_NAVIGATION_DESIGN.md` 第 19、20 节。本文件定义领域数据、标准映射、存储和执行边界；不改变 Chat Runtime 的 Turn/Branch，不把业务配置写进 `core/tools` 的展示注册表。
+
+阅读进度优先看第 14 节实施记录：阶段 A 的基础合约/数据层和阶段 B 的主要 Skill 流程已实现，但版本 diff、完整迁移报告等仍有待办；第 13 节保留原始实施顺序，不表示每个阶段已全部验收。后续配置主线为阶段 C 的 MCP 正式配置页、阶段 D 的 Agent 组合，再到阶段 E 的 BE 执行。单次 AI 响应的独立录制、结束后弹窗查看及最小 DeepSeek 工具闭环已实施，另见 `CHAT_TURN_NAVIGATION_DESIGN.md` 第 22 节；演示工具闭环不代表正式 MCP/Agent 执行已接入。
 
 ## 1. 结论与规范边界
 
@@ -20,9 +22,9 @@ MCP 规定协议和能力交互；我们的连接 ID、标签、启停、版本�
 
 以下 JSON/TypeScript、数据库表名、API、权限策略均为 **本项目建议的应用协议**，不是声称存在一份统一的“AI 标准 JSON”。
 
-## 2. 当前实现需要替换什么
+## 2. 设计起点：旧 POC 需要替换什么
 
-目前 `extensionModel.ts` 的 Agent 是 `prompt + skillIds/mcpIds/pluginIds`，Skill 只有 `instructions`，MCP 只有 `endpoint`。它们适合 UI 验证，但不足以支撑正式执行：
+初版 `extensionModel.ts` 的 Agent 是 `prompt + skillIds/mcpIds/pluginIds`，Skill 只有 `instructions`，MCP 只有 `endpoint`。这些是提案时的设计起点；当前 Skill 主入口已迁移到正式文件包流程，Agent/MCP 页面仍沿用旧 POC 配置。下面列举原始迁移动机，不表示这些缺口今天全部仍然存在：
 
 - Skill 丢失文件包结构、标准 frontmatter、资源和来源，无法可靠导入/导出。
 - MCP 无法区分 transport、认证要求、真实工具 schema 和连接/授权状态。
@@ -31,7 +33,7 @@ MCP 规定协议和能力交互；我们的连接 ID、标签、启停、版本�
 - ID 引用未固定版本，编辑 Skill 会影响 Agent 下一次执行的内容。
 - 现有 `buildInvocation` 会复制 Agent Prompt 等字段；正式请求应交由 BE 按授权和固定版本解析。
 
-这轮只确定设计；不立即重写页面，不自动导入文件、不连接外部 MCP、不运行脚本，也不修改 BE。
+原始提案阶段只确定设计；后续已按第 14 节实施了基础领域/数据层和 Skill 页面。真实外部 MCP 连接、脚本运行与 BE 执行仍未接入。
 
 ## 3. 总体层级
 

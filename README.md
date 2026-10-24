@@ -2,6 +2,12 @@
 
 基于 React、TypeScript 和 pnpm 的聊天 Runtime 项目。
 
+## 项目进度入口
+
+当前业务迭代入口为 `/extension-poc`。导航、工作台、工具机制、Skill 包、消息临时编辑与 Pendo 的已完成项及待办，见 [当前进度总览](CHAT_TURN_NAVIGATION_DESIGN.md#0-当前进度与阅读入口)；Agent/Skill/MCP 的阶段进度见 [实施记录](AGENT_SKILL_MCP_DESIGN.md#14-阶段-a--b-实施记录2026-10-02)。
+
+AI 响应过程查看已实现：独立记录单次响应，结束后由 Message Card 的可选按钮打开紧凑时间图与 event/content 列表；事件名称、内容和起止时间由接入方提供，点击后在同一弹窗内查看详情。弹窗内部处理关闭和空记录。DeepSeek 最小求和工具闭环已通过实际联调，不做搜索或会话级轨迹平台。[模块接入说明](src/features/ai-response-trace/README.md)包含独立使用方式；机制与统计见 [响应过程设计](CHAT_TURN_NAVIGATION_DESIGN.md#22-ai-消息节点内展示完整响应过程)。进度于 2026-10-24 按代码核对；历史设计示例不等同于已实现 API。
+
 ## 本地开发
 
 ```sh

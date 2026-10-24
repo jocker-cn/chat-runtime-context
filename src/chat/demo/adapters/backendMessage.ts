@@ -22,6 +22,7 @@ export type BackendMessage = {
     | "streaming"
     | "streaming_completed"
     | "function_call"
+    | "tool_result"
     | "messages_snapshot"
     | "completed"
     | "error";
@@ -135,7 +136,7 @@ export function createBackendMessageEventConverter(input: RunAgentInput) {
           }
           break;
         case "function_call": {
-          const toolCallId = `tool-${input.runId}-${toolCallIndex++}-${
+          const toolCallId = message.message?.id ?? `tool-${input.runId}-${toolCallIndex++}-${
             message.message?.name ?? "unknown"
           }`;
           events.push(
@@ -156,6 +157,15 @@ export function createBackendMessageEventConverter(input: RunAgentInput) {
           );
           break;
         }
+        case "tool_result":
+          events.push({
+            type: EventType.TOOL_CALL_RESULT,
+            messageId: `result:${messageId}`,
+            toolCallId: messageId,
+            content: message.message?.content ?? "",
+            role: "tool",
+          });
+          break;
         case "messages_snapshot":
           events.push({
             type: EventType.MESSAGES_SNAPSHOT,

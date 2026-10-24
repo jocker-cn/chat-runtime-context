@@ -20,6 +20,7 @@ import {
 } from "./thinkingActivity";
 import { ApiRequestAction } from "./ApiRequestAction";
 import { MessageContentEditor } from "./MessageContentEditor";
+import { ResponseTraceDialog, useResponseTrace, type ResponseTraceRef, type ResponseTraceStore } from "../../features/ai-response-trace";
 
 export interface DemoChatExtensions extends ChatExtensionStore {
   retryUserError?: (
@@ -33,6 +34,8 @@ export interface DemoChatExtensions extends ChatExtensionStore {
   resolveMessageById?: (messageId: string) => DemoMessage | undefined;
   navigateToMessage?: (messageId: string) => void;
   allowMessageEditing?: boolean;
+  responseTraces?: ResponseTraceStore;
+  resolveResponseTrace?: (context: MessageRenderContext) => ResponseTraceRef | undefined;
 }
 
 export const demoRenderer = createFrameRenderer<DemoMessage>({
@@ -119,8 +122,11 @@ function UserMessageCard({
   );
 }
 
-function AiErrorMessageCard({ message }: FrameCardProps<DemoMessage>) {
+function AiErrorMessageCard({ message, context }: FrameCardProps<DemoMessage>) {
   const contentId = useId();
+  const { responseTraces, resolveResponseTrace } = useChatExtensions<DemoChatExtensions>();
+  const trace = useResponseTrace(responseTraces, resolveResponseTrace?.(context));
+  const [traceOpen, setTraceOpen] = useState(false);
   if (!isDemoAiErrorMessage(message)) {
     return null;
   }
@@ -139,6 +145,9 @@ function AiErrorMessageCard({ message }: FrameCardProps<DemoMessage>) {
       {typeof message.content.thinkingText === "string" && message.content.thinkingText && (
         <details><summary>失败前的思考内容</summary><div>{message.content.thinkingText}</div></details>
       )}
+      {responseTraces && <div className="message-card-actions"><button type="button" disabled={!trace.record}
+        onClick={() => setTraceOpen(true)}>查看响应过程</button></div>}
+      <ResponseTraceDialog open={traceOpen} trace={trace.record} onClose={() => setTraceOpen(false)} />
     </article>
   );
 }
@@ -148,7 +157,9 @@ function AssistantMessageCard({
   context,
 }: FrameCardProps<DemoMessage>) {
   const selectBranch = useSelectBranch();
-  const { chatFromHere, allowMessageEditing } = useChatExtensions<DemoChatExtensions>();
+  const { chatFromHere, allowMessageEditing, responseTraces, resolveResponseTrace } = useChatExtensions<DemoChatExtensions>();
+  const trace = useResponseTrace(responseTraces, resolveResponseTrace?.(context));
+  const [traceOpen, setTraceOpen] = useState(false);
   const isSelected = context.isSelectedBranch;
   const contentId = useId();
   const [savedContent, setSavedContent] = useState<string>();
@@ -189,6 +200,8 @@ function AssistantMessageCard({
       <div hidden={editing}>
         <ApiRequestAction />
         <div className="message-card-actions">
+          {responseTraces && <button type="button" disabled={!trace.record}
+            onClick={() => setTraceOpen(true)}>查看响应过程</button>}
           {canEdit ? (
             <button ref={editButtonRef} type="button" aria-label="编辑消息"
               onClick={() => setEditing(true)}>
@@ -219,6 +232,7 @@ function AssistantMessageCard({
           </button>
         </div>
       </div>
+      <ResponseTraceDialog open={traceOpen} trace={trace.record} onClose={() => setTraceOpen(false)} />
     </article>
   );
 }

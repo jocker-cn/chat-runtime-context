@@ -1,8 +1,25 @@
 # Chat Turn Navigation 插件设计记录
 
-> 状态：设计草案，尚未实现  
-> 记录日期：2026-07-18  
-> 目标：记录类似 Codex Desktop 左侧“用户消息导航轨 + 悬浮预览”的结构、行为和后续接入方案。
+> 状态：导航基础能力已实现；本文同时保留历史设计与后续扩展提案。
+>
+> 初始记录：2026-07-18；进度核对：2026-10-24。
+>
+> 当前业务入口：`/extension-poc`。实际公共 API 以代码为准，不把历史示例或后续提案视为已实现功能。
+
+## 0. 当前进度与阅读入口
+
+| 内容 | 当前状态 | 详细记录 |
+| --- | --- | --- |
+| 对话导航轨 | 已实现 Turn 刻度、点击定位、悬浮/键盘焦点预览、可见 Turn 高亮与刻度区滚动；拖动浏览、具体虚拟列表及历史分页接入仍是后续能力 | 第 6、8、10、11 节；`src/core/chat/plugins/chat-turn-navigation/` |
+| 聊天工作台 | 已实现单 Session 生命周期、A/B 后续发送开关、引用和原消息定位 | 第 20.8、21.4 节 |
+| 独立工具机制 | Registry、React 接入、列表、两级菜单与可选 Dialog 已实现；完整业务注册/执行迁移尚未完成 | 第 20.5～20.9 节 |
+| 正式配置与 Skill 包 | 基础领域/数据层与 Skill 包编辑、导入导出、草稿/发布和历史版本查看已实现；Agent/MCP 正式页面与真实执行待推进 | 第 21.1 节；`AGENT_SKILL_MCP_DESIGN.md` 第 14 节 |
+| 消息临时编辑 | 已实现当前消息内源码编辑/预览/保存/取消，刷新或卸载恢复原文；引用与 LLM 上下文继续使用原文 | 第 21.5 节 |
+| 可选 Pendo 接入 | 已实现通用 Provider、缓冲/清理、业务统计与主动对话事件接口；当前 demo 不自动上传正文 | 第 21.6 节 |
+| 单次 AI 响应过程查看 | 已实现独立录制、结束后弹窗、阶段/完整字段详情及 Card 可选入口；DeepSeek 最小工具闭环已通过真实联调。不做搜索和会话级轨迹平台 | 第 22 节 |
+| 远程 Workbench / Plugin Host | 保留设计，尚未完成远程加载与宿主执行闭环 | 第 19 节 |
+
+第 2～5、15～18 节中的产品观察、接口草案及阶段划分保留其原始设计背景；不要据此判断全部能力仍未实现。已落地行为与待办以本节、各节实施记录和当前代码共同核对。
 
 ## 1. 结论
 
@@ -239,7 +256,7 @@ src/plugins/chat-turn-navigation/
 
 ## 5. 建议的公共契约
 
-以下只是后续实现建议，不代表当前已经导出的 API。
+以下保留初版契约草案；当前已经导出导航 API，实际类型与签名见 `src/core/chat/plugins/chat-turn-navigation/contracts.ts` 和 `index.ts`，不要直接将历史示例当作接入代码。
 
 ```ts
 import type { Message } from "@ag-ui/client";
@@ -669,6 +686,8 @@ When the focused control disappears, navigation recovers to a remaining control 
 
 ## 15. 分阶段实施建议
 
+以下保留初版阶段拆分。Phase 1 基础导航以及 Phase 2 的可见态、Hover/Focus Preview 已落地；已选分支优先的 A/B 预览也已接入。其余条目仍需按实际代码核对，不表示整个 Phase 2/3 已完成。
+
 ### Phase 1：基础导航
 
 - Navigation contracts。
@@ -751,7 +770,7 @@ When the focused control disappears, navigation recovers to a remaining control 
 
 ## 18. 最终建议
 
-后续开始开发时，先实现最小闭环：
+初版建议的最小闭环已经落地：
 
 ```text
 useChatTurnNavigation Controller
@@ -760,9 +779,9 @@ useChatTurnNavigation Controller
   + Rail Click Navigation
 ```
 
-这一步已经可以验证整体边界是否正确，并且不需要改动 Core。
+该闭环利用现有 Runtime 数据和 DOM 定位能力，保持导航与 Runtime 生命周期分离。
 
-确认基础闭环稳定后，再加入 Preview、IntersectionObserver、Scrub 和虚拟列表适配。这样可以避免一次性把滚动、观察器、Tooltip、虚拟化和 accessibility 全部耦合在一起。
+Preview 和 IntersectionObserver 可见态已经补齐；Scrub、具体虚拟列表及历史分页适配继续作为独立后续能力，不将滚动、观察器、Tooltip、虚拟化和 accessibility 耦合为同一套状态。
 
 ## 19. 远程 Workbench UI 插件扩展方案
 
@@ -1381,8 +1400,8 @@ Agent 的 Prompt 与所选 Skill/MCP/Plugin 是配置关系，不改变 Runtime 
 
 后续阶段按依赖顺序推进：
 
-1. **当前阶段：独立工具基础机制。** 在 `src/core/tools/` 实现 Registry、React 接入、独立列表展示与可选公共 Dialog；使用独立测试验证，不迁移现有 input。
-2. **下一阶段：正式领域模型与业务迁移。** 先按第 21 节确定 Agent/Skill/MCP 标准映射、文件包、版本及异步 Repository，再逐步迁移入口。`/` 只负责触发、查询、关闭选择菜单和调用工具；Agent/Skill/MCP/Plugin 功能模块自己注册行为。Tiptap 通过输入框能力 Adapter 接入，不成为 Registry 的依赖。
+1. **已落地：独立工具基础机制。** `src/core/tools/` 已实现 Registry、React 接入、独立列表展示与可选公共 Dialog；输入框也已接入两级菜单展示。完整业务注册/执行迁移不等于菜单展示接入。
+2. **部分落地：正式领域模型与业务迁移。** 第 21 节的基础领域/异步 Repository 与 Skill 文件包已经实现；Agent/MCP 正式页面与完整业务注册迁移仍待推进，详细边界见 `AGENT_SKILL_MCP_DESIGN.md` 第 14 节。`/` 只负责入口交互；功能模块自己拥有业务行为，Tiptap 不成为 Registry 的依赖。
 3. 将第 19 节 Plugin Manifest/Renderer 注册映射到 Extension Catalog；实现可信 Plugin Host 的生命周期和 Workbench Tab。Workbench 是可选宿主能力，不是工具调用的前置依赖。
 4. 增加 BE Invocation Adapter、Agent 编排与 MCP 工具网关，再接入权限审批、凭据管理和执行结果回传。
 5. 增加版本迁移、跨设备同步、插件来源校验和端到端测试。
@@ -1554,3 +1573,156 @@ Provider 放在持久的应用布局，不以聊天 session 为 SDK 生命周期
 通用 API 另提供 `usePendo().trackAgent(eventType, agenticProperties, properties?)`，用于主动提交 prompt、agent_response 和 user_reaction；与普通 track 共享缓冲顺序、禁用保护和 flush。业务拥有 Pendo Agent ID、会话/消息 ID、正文及结束语义，在自身发送/明确结束/反馈节点调用；封装不监听 SSE、不推断结束、不自动上传历史或对话，也不依赖 queue。现有 demo 的只读观察器继续只发送无正文的业务统计。
 
 接入参数、Next.js 示例、采集限制和移除步骤见 [Pendo 模块说明](src/features/pendo/README.md)。core、消息、提交/取消处理和 WebSocket 协议保持原有职责。
+
+## 22. AI 消息节点内展示完整响应过程
+
+> 更新：2026-10-24。FE/BE 已落地；按最新确认，弹窗收敛为紧凑的时间图与 event/content 列表。组件不知道哪些事件是工具、思考或回答，相关名称、内容、聚合与时间边界由接入方提供。本节取代首版侧栏阶段详情与工具计数设计。
+
+### 22.1 需求与接入基线
+
+一次响应可能交替返回思考、调用、结果、再次思考和最终回答。用户需要直接在 UI 检查实际内容，不依赖浏览器控制台。
+
+原有 demo 把 `thinking_delta` 累积为同一个 activity，阶段切换覆盖 phase；消息快照可能丢弃中间消息。因此不能从 Runtime 最终消息列表还原完整过程。已有 `observeAgUiAgentLifecycle` 可独立观察 run 与事件，当前 transport 可选输出有损转换前的 RAW 帧。
+
+录制与消息渲染是独立路径：
+
+```text
+源事件 → 内存录制 → finalize → 接入方整理通用事件数据 → 弹窗
+消息快照 → Runtime 编排/过滤 → Message Card
+```
+
+### 22.2 本版范围
+
+- 单个 Agent 的一次响应，按 sourceId/threadId/runId 区分；A/B 和连续多轮隔离。一次响应可以包含多次模型调用。
+- 请求开始前建立录制，消息被过滤、合并、覆盖或 Card 卸载后仍保留已收到的事件。
+- 仅响应最终结束后可查看；成功、失败、取消或异常结束均可检查已收到内容。等待 finalize 才发布可查看记录。
+- Message Card 可选接入自有按钮，其他业务入口也可使用；不依赖特定 RuntimeView、消息编排或 DOM。
+- 内存保存，刷新或销毁记录域后释放；不从只有历史正文的数据伪造轨迹。
+- 不加入搜索、导出、跨轮统计、会话轨迹平台或持久化。
+
+### 22.3 组件与接入方的边界
+
+组件消费通用数据，不内置工具、思考、回答等类型枚举：
+
+```ts
+type ResponseTraceEntry = {
+  id: string;
+  event: string;
+  content: unknown;
+  startedAt: number;
+  endedAt?: number;
+  details?: unknown;
+};
+```
+
+- `event` 名称由接入方上报，组件原样展示；配色按顺序轮换，不代表固定类型。
+- `content` 由接入方决定，概览显示单行摘要，详情完整展示。JSON 缩进呈现，非 JSON 保留原文。
+- `startedAt/endedAt` 与响应起点采用同一毫秒时间基准。未提供结束时间时显示“—”，不自动用下一条事件补齐。
+- `details` 为可选完整数据，在详情页内折叠展示。未知字段不因前端白名单丢失。
+- 协议解析、流式片段合并、工具调用与结果关联等全部属于接入方。默认不提供整理函数时按原始事件逐条展示，不进行业务分类。
+
+### 22.4 目录与职责
+
+```text
+src/features/ai-response-trace/
+  responseTrace.ts                 # 通用类型、记录、结束状态、读取 hook
+  ResponseTraceDialog.tsx          # 时间图、event/content 列表、内页详情
+  ResponseTraceDialog.module.css   # 紧凑布局与现有 theme tokens
+  index.ts
+  README.md                       # 独立接入示例
+
+src/chat/demo/adapters/backendResponseTrace.ts
+                                  # demo 自己的事件名称/内容/时间整理
+```
+
+`src/plugins/ag-ui-lifecycle/` 继续负责通用订阅。记录器接收通知，不依赖当前消息列表或 React Card，不建立全局单例、Provider 或额外执行状态机。
+
+`extensionPocRuntime.ts` 拥有订阅、记录器与生命周期，建立真实 Turn/Branch 到响应引用的绑定；页面只通过现有 extensions 提供必要能力。没有修改 core。
+
+### 22.5 接入接口
+
+```tsx
+const traces = createResponseTraceStore({
+  projectEvents: yourEventProjector, // (rawEvents) => ResponseTraceEntry[]
+});
+const stop = observeAgUiAgentLifecycle(agent, {
+  sourceId: "agent-a",
+  onNotification: traces.record,
+});
+
+// 任意 Message Card 中：
+const trace = useResponseTrace(responseTraces, resolveResponseTrace?.(context));
+const [open, setOpen] = useState(false);
+
+{responseTraces && <button
+  disabled={!trace.record}
+  onClick={() => setOpen(true)}
+>查看响应过程</button>}
+
+<ResponseTraceDialog
+  open={open}
+  trace={trace.record}
+  onClose={() => setOpen(false)}
+/>
+
+// 会话业务拥有者销毁时：stop(); traces.dispose();
+```
+
+`useResponseTrace(store, ref)` 是模块导出的普通 hook。不存在全局共享 store；使用方明确传入当前会话的记录器与真实响应引用。
+
+弹窗内部处理 `open=false` 与空记录，调用方无需 `{open && trace.record && ...}`。同一次响应的多个 Card 可以解析到同一 ref；重复开关弹窗不会重新发请求。Assistant 与 AI 错误 Card 已接入。
+
+### 22.6 采集、结束与整理
+
+1. `run-initialized` 建立记录并复制一次 run input，订阅在首次发送前完成。
+2. 事件按收到顺序保存 `{sequence, receivedAt, event}` 独立副本，不随每个 token 复制整份 messages/state，也不通知 Card 重渲染。
+3. `RUN_FINISHED/RUN_ERROR` 记录结束意图；到 `run-finalized` 后才调用一次接入方的 `projectEvents`，复制并冻结通用 entries 与完整原始事件。
+4. 记录器只管理响应生命周期；不合成“本次请求/思考/工具/回答/结束”等业务节点，不计算工具计数。
+5. 本地取消由现有业务节点调用 `markCancelled(ref)`，仍等待 finalize；不宣称 BE 已确认停止。未知异常保留不完整状态。
+6. 已冻结数据不再被迟到帧改写；业务拥有者释放订阅及记录域。Card 卸载或关闭弹窗不删除数据。
+
+当前 demo 的 `projectBackendResponseTrace` 整理自有协议：按真实 ID 合并 thinking/streaming 片段，function_call 到相同 ID 的 tool_result 构成调用观测区间；结果帧为瞬时事件。重复同名工具仍按 ID 区分，缺少结束/结果时不伪造耗时。未知事件及所有完整字段仍保留。这些规则只在 demo 接入层存在。
+
+### 22.7 耗时口径与图表
+
+- 总耗时：浏览器观察到初始化至 finalize 的时间，不含发送队列等待；不冒充 BE 精确执行时长。
+- 每个事件：接入方上报的 endedAt - startedAt；缺少结束时间显示“—”，瞬时上报显示 0 ms。
+- 时间图使用同一响应时间轴，每个上报事件一行，以起点偏移及持续宽度展示，右侧显示毫秒值；可点击时间条查看内容。
+- 允许并发/重叠，事件耗时相加不等于总耗时。
+- 不展示阶段计数、工具调用/返回计数、原始事件计数、token、费用或无来源指标。
+
+### 22.8 弹窗布局与交互
+
+- 小标题和关闭按钮；不加状态摘要或装饰性统计卡片。
+- 第一部分是紧凑时间图：总耗时、统一时间轴与各事件耗时。
+- 第二部分仅有 `event / content` 两列表格，每行内容为单行摘要；长内容不会撑开概览。
+- 点击内容或时间条，在当前弹窗内切换为详情页：返回列表、事件名称、完整内容，可展开“完整数据”。不嵌套第二个弹窗，也不设置常驻侧栏。
+- 返回列表恢复查看位置与焦点。弹窗尺寸随内容展开并受视口高度限制，不为不重要内容预留大块空间。
+- Portal 挂到消息列表外；管理 Escape、Tab 范围、关闭回焦与滚动锁定，不改 core 焦点机制。
+- 空记录时展示空事件列表。临时编辑消息不改变原始过程内容或 Chat from here 语义。
+
+### 22.9 DeepSeek 最小工具闭环
+
+BE 已实现可选 `demo_calculate_sum(numbers)`，使用 BigDecimal 真正求和，返回 tool/numbers/count/sum 的完整 JSON。默认关闭；仅开启且该请求没有声明原有前端 UI 工具时注册，避免接管原流程。
+
+```text
+run_started
+  DeepSeek 请求 → thinking_* / function_call（真实调用 ID）
+  BE 执行 → tool_result（同一 ID，完整 JSON）
+  回填 assistant.tool_calls + role=tool/tool_call_id
+  DeepSeek 继续请求 → thinking_* / streaming_*
+completed（整个循环结束后一次）
+```
+
+最多请求模型 3 次；错误参数、未知调用、循环超限及流提前断开均明确失败，不伪造成功。每轮独立思考/文本 ID，按当前模型要求回传 reasoning_content。沿用真实模型配置，已验证实际工具执行、回填与后续回答。
+
+修改位于 BE 的 `DeepSeekStreamingChatService.java` 和 `ServerMessage.java`；FE 转换器保留调用 ID 并支持独立 tool_result。后端现有 `application.yml` 用户修改保持原样，以 `--copilot.demo-tool.enabled=true` 显式开启。
+
+### 22.10 验收与验证
+
+- 通用组件不认识业务类型；自定义名称/内容/时间原样呈现，不自动合并 AG-UI 工具或思考。
+- 图表与 event/content 列表可独立使用，无 Card/RuntimeView 依赖；关闭、空记录、详情/返回及 JSON 全字段可用。
+- 实际 demo 自己上报多段文本和工具流程，未知帧仍可检查。
+- 消息被清空后事件仍保留，A/B/run 隔离；生成中不能打开，失败与取消后已收到内容可查看。
+- 原有消息编辑、引用、Chat from here 与 core 行为保持原语义。
+- 通用记录、接入层整理、弹窗交互及 Card 接入都有针对性回归；BE 已通过本地模拟模型服务的 7 项闭环/错误/上限测试，并完成真实 DeepSeek 联调。
