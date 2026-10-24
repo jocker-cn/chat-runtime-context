@@ -13,10 +13,8 @@ import {
 } from "../../../core";
 import { createAgent } from "../adapters/createAgent";
 import type { DemoMessage } from "../demoMessage";
-import { createResponseTraceStore, type ResponseTraceRef, type ResponseTraceStore } from "../../../features/ai-response-trace";
-import { observeAgUiAgentLifecycle } from "../../../plugins/ag-ui-lifecycle";
-import { projectBackendResponseTrace } from "../adapters/backendResponseTrace";
-import { EventType } from "@ag-ui/client";
+import { createResponseTraceStore, type ResponseTraceStore } from "../../../features/ai-response-trace";
+import { createAgUiResponseTraceObserver, type ResponseTraceMessageRef } from "../../../plugins/ag-ui-response-trace";
 
 export interface ChatSubmission {
   text: string;
@@ -36,7 +34,7 @@ export interface ExtensionPocRuntimeController {
   queue: SubmissionQueue<ChatSubmission>;
   scheduler: QueueScheduler<ChatSubmission>;
   responseTraces: ResponseTraceStore;
-  resolveResponseTrace(context: { turnId: string; branchId: string }): ResponseTraceRef | undefined;
+  resolveResponseTrace(message: ResponseTraceMessageRef): string | undefined;
   /** Changes sources for subsequent dispatches, without cancelling an active run. */
   setSecondaryAgentEnabled(enabled: boolean): void;
   /** Always creates a separate error Turn after the target run and Runtime settle. */
@@ -51,9 +49,8 @@ export function createExtensionPocRuntime({
 }: ExtensionPocRuntimeOptions = {}): ExtensionPocRuntimeController {
   let secondaryAgentEnabled = true;
   let disposed = false;
-  const responseTraces = createResponseTraceStore({ projectEvents: projectBackendResponseTrace });
-  const traceRefs = new Map<string, ResponseTraceRef>();
-  const stopObserving: (() => void)[] = [];
+  const responseTraces = createResponseTraceStore();
+  const traceObserver = createAgUiResponseTraceObserver(responseTraces);
   const sources = ["agent-a", "agent-b"].map((branchId, index) => {
     const label = index === 0 ? "Agent A" : "Agent B";
     const agent = createAgent({
@@ -66,10 +63,9 @@ export function createExtensionPocRuntime({
         // The mock initializes both agents with context; history rendering remains on A.
         initialMessages: structuredClone([...history]),
         handleRunErrors: true,
-        captureRawEvents: true,
-        onRunCancelled: (input) => responseTraces.markCancelled({ sourceId: branchId, threadId: input.threadId, runId: input.runId }),
       },
     });
+    traceObserver.observe(agent, branchId);
     return { branchId, label, metadata: { agent }, source: new AgUiAgentSource<string>({ id: branchId, label, agent }) };
   });
   const runtime = new CompareChatRuntime<string, DemoMessage>({
@@ -78,29 +74,6 @@ export function createExtensionPocRuntime({
     sources,
     historyTurns: createMainBranchHistoryTurns({ messages: history, sourceBranchId: "agent-a" }),
   });
-  for (const { branchId: sourceId, metadata: { agent } } of sources) {
-    stopObserving.push(observeAgUiAgentLifecycle(agent, {
-      sourceId,
-      onNotification: (notification) => {
-        try {
-          // RAW frames retain fields and thinking boundaries discarded by the UI mapper.
-          // Do not retain each synthetic full-text activity snapshot as well.
-          if (notification.type !== "event" || [EventType.RAW, EventType.RUN_STARTED, EventType.RUN_FINISHED, EventType.RUN_ERROR].includes(notification.event.type)) {
-            responseTraces.record(notification);
-          }
-          if (notification.type === "run-initialized") {
-            const inputId = [...notification.input.messages].reverse().find((message) => message.role === "user")?.id;
-            const snapshot = runtime.getSnapshot();
-            const turn = Object.values(snapshot.turnsById).find((item) => item.inputMessageId === inputId);
-            const branchId = turn?.branchIds.find((id) => snapshot.branchesById[id]?.sourceId === sourceId);
-            if (turn && branchId) traceRefs.set(JSON.stringify([turn.id, branchId]), {
-              sourceId, threadId: notification.threadId, runId: notification.runId,
-            });
-          }
-        } catch (error) { console.error("Failed to record response trace.", error); }
-      },
-    }));
-  }
   const queue = createSubmissionQueue<ChatSubmission>();
   const target = createChatRuntimeQueueTarget<ChatSubmission, string>({
     runtime,
@@ -133,7 +106,7 @@ export function createExtensionPocRuntime({
     queue,
     scheduler,
     responseTraces,
-    resolveResponseTrace: ({ turnId, branchId }) => traceRefs.get(JSON.stringify([turnId, branchId])),
+    resolveResponseTrace: traceObserver.resolveMessage,
     setSecondaryAgentEnabled: (enabled) => { secondaryAgentEnabled = enabled; },
     submitBranchError: async (branchId, error) => {
       const sourceId = runtime.getSnapshot().branchesById[branchId]?.sourceId;
@@ -150,8 +123,7 @@ export function createExtensionPocRuntime({
       disposed = true;
       scheduler.dispose();
       await runtime.dispose();
-      stopObserving.forEach((stop) => stop());
-      traceRefs.clear();
+      traceObserver.dispose();
       responseTraces.dispose();
     },
   };

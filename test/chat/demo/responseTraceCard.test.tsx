@@ -61,14 +61,19 @@ describe("Message Card optional response trace action", () => {
     await act(async () => { b.message({ event: "completed" }); });
   });
 
-  it("makes failed responses inspectable even before an Assistant text message exists", async () => {
+  it.each(["backend", "disconnect", "parse"])("reports %s errors as inspectable events before any Assistant text exists", async (failure) => {
     const { a, b } = await start();
-    await act(async () => { a.message({ event: "error", error: "Unavailable" }); });
+    await act(async () => {
+      if (failure === "backend") a.message({ event: "error", error: "Unavailable" });
+      if (failure === "disconnect") { a.onerror?.(); a.end(); }
+      if (failure === "parse") a.onmessage?.({ data: "not-json" });
+    });
     const button = await screen.findByRole("button", { name: "查看响应过程" });
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(button);
     fireEvent.click(screen.getByRole("button", { name: "查看 error 内容" }));
-    expect(screen.getByRole("region", { name: "事件详情" }).textContent).toContain("Unavailable");
+    const detail = screen.getByRole("region", { name: "事件详情" }).textContent;
+    expect(detail).toMatch(failure === "backend" ? /Unavailable/ : failure === "disconnect" ? /WebSocket/ : /JSON|Unexpected/);
     await act(async () => { b.message({ event: "completed" }); });
   });
 });

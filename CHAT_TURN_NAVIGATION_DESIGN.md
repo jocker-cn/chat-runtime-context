@@ -1576,130 +1576,135 @@ Provider 放在持久的应用布局，不以聊天 session 为 SDK 生命周期
 
 ## 22. AI 消息节点内展示完整响应过程
 
-> 更新：2026-10-24。FE/BE 已落地；按最新确认，弹窗收敛为紧凑的时间图与 event/content 列表。组件不知道哪些事件是工具、思考或回答，相关名称、内容、聚合与时间边界由接入方提供。本节取代首版侧栏阶段详情与工具计数设计。
+> 更新：2026-10-24。按最新确认，记录器只保存与展示接入方上报的事件，不依赖 AG-UI，不管理响应的开始、结束、成功、错误或取消状态。弹窗仍为紧凑时间图与 event/content 列表。
 
-### 22.1 需求与接入基线
+### 22.1 目标与范围
 
-一次响应可能交替返回思考、调用、结果、再次思考和最终回答。用户需要直接在 UI 检查实际内容，不依赖浏览器控制台。
+用户要在 UI 检查一次响应实际返回的内容，包括交替出现的文本与调用结果，无需去控制台逐条查看。
 
-原有 demo 把 `thinking_delta` 累积为同一个 activity，阶段切换覆盖 phase；消息快照可能丢弃中间消息。因此不能从 Runtime 最终消息列表还原完整过程。已有 `observeAgUiAgentLifecycle` 可独立观察 run 与事件，当前 transport 可选输出有损转换前的 RAW 帧。
+- 单次响应由调用方提供的 responseId 关联，模块不要求 sourceId/threadId/runId 或任何第三方协议类型。
+- 模块只读展示。完成和 error 都是调用方上报的普通事件，不触发内置终态或特殊动作。
+- 事件名称、内容、流式合并及时间边界由接入方定义；组件不认识哪些事件是工具、思考、回答。
+- Message Card 拥有自己的按钮与开关。生成期间禁用按钮使用 Card 已有 branchStatus，不在记录器中重复维护。
+- 消息删除或 Card 卸载时入口自然消失；不加保活、恢复、重建消息或额外查找入口。
+- 数据保存在当前拥有者的内存中，释放时清理。不做搜索、导出、跨轮统计、持久化或会话轨迹平台。
 
-录制与消息渲染是独立路径：
-
-```text
-源事件 → 内存录制 → finalize → 接入方整理通用事件数据 → 弹窗
-消息快照 → Runtime 编排/过滤 → Message Card
-```
-
-### 22.2 本版范围
-
-- 单个 Agent 的一次响应，按 sourceId/threadId/runId 区分；A/B 和连续多轮隔离。一次响应可以包含多次模型调用。
-- 请求开始前建立录制，消息被过滤、合并、覆盖或 Card 卸载后仍保留已收到的事件。
-- 仅响应最终结束后可查看；成功、失败、取消或异常结束均可检查已收到内容。等待 finalize 才发布可查看记录。
-- Message Card 可选接入自有按钮，其他业务入口也可使用；不依赖特定 RuntimeView、消息编排或 DOM。
-- 内存保存，刷新或销毁记录域后释放；不从只有历史正文的数据伪造轨迹。
-- 不加入搜索、导出、跨轮统计、会话轨迹平台或持久化。
-
-### 22.3 组件与接入方的边界
-
-组件消费通用数据，不内置工具、思考、回答等类型枚举：
+### 22.2 公共数据契约
 
 ```ts
-type ResponseTraceEntry = {
-  id: string;
-  event: string;
-  content: unknown;
-  startedAt: number;
+type ResponseTraceReport = {
+  type: string;
+  name?: string;
+  content?: unknown;
+  id?: string;
+  startedAt?: number;
   endedAt?: number;
   details?: unknown;
 };
 ```
 
-- `event` 名称由接入方上报，组件原样展示；配色按顺序轮换，不代表固定类型。
-- `content` 由接入方决定，概览显示单行摘要，详情完整展示。JSON 缩进呈现，非 JSON 保留原文。
-- `startedAt/endedAt` 与响应起点采用同一毫秒时间基准。未提供结束时间时显示“—”，不自动用下一条事件补齐。
-- `details` 为可选完整数据，在详情页内折叠展示。未知字段不因前端白名单丢失。
-- 协议解析、流式片段合并、工具调用与结果关联等全部属于接入方。默认不提供整理函数时按原始事件逐条展示，不进行业务分类。
+接入方只需上报自己的 type，name 可选。未传起点时取上报时间；没有固定枚举。content/details 支持可复制的完整数据，不以字段白名单裁剪。
 
-### 22.4 目录与职责
+不传事件 id 时追加；同一响应内重用事件 id 时更新该行并保持首次出现顺序。未再次提供 startedAt 时保留原起点。模块不自动拼接字符串、不推断工具关系、不补造起止节点。
+
+responseId 只是业务给出的字符串，模块不解析其格式。当前 AG-UI 观察器内部按真实来源与运行 ID 关联实际消息 ID，不读取 Runtime、Turn 或 Branch；其他协议可完全自行命名。
+
+### 22.3 目录与职责
 
 ```text
 src/features/ai-response-trace/
-  responseTrace.ts                 # 通用类型、记录、结束状态、读取 hook
-  ResponseTraceDialog.tsx          # 时间图、event/content 列表、内页详情
-  ResponseTraceDialog.module.css   # 紧凑布局与现有 theme tokens
+  responseTrace.ts                 # 通用上报、只读快照、订阅与读取 hook
+  ResponseTraceDialog.tsx          # 时间图、event/content 列表、详情内页
+  ResponseTraceDialog.module.css
   index.ts
-  README.md                       # 独立接入示例
+  README.md
 
-src/chat/demo/adapters/backendResponseTrace.ts
-                                  # demo 自己的事件名称/内容/时间整理
+src/plugins/ag-ui-response-trace/
+  observeAgUiResponseTrace.ts      # 独立订阅、消息 ID 关联与清理
+  agUiEvents.ts                   # 标准 AG-UI 事件处理
+  backendEvents.ts                # 当前后端 RAW 帧处理
+  index.ts
 ```
 
-`src/plugins/ag-ui-lifecycle/` 继续负责通用订阅。记录器接收通知，不依赖当前消息列表或 React Card，不建立全局单例、Provider 或额外执行状态机。
+记录模块不导入 @ag-ui/client、ag-ui-lifecycle、core、Agent 或通知协议。不引入全局单例、Provider、协议投影器或运行状态机。
 
-`extensionPocRuntime.ts` 拥有订阅、记录器与生命周期，建立真实 Turn/Branch 到响应引用的绑定；页面只通过现有 extensions 提供必要能力。没有修改 core。
-
-### 22.5 接入接口
+### 22.4 上报与读取
 
 ```tsx
-const traces = createResponseTraceStore({
-  projectEvents: yourEventProjector, // (rawEvents) => ResponseTraceEntry[]
-});
-const stop = observeAgUiAgentLifecycle(agent, {
-  sourceId: "agent-a",
-  onNotification: traces.record,
+const traces = createResponseTraceStore();
+
+traces.report(responseId, {
+  type: "my-service-event",
+  name: "业务自定义名称",
+  content: nativePayload,
 });
 
-// 任意 Message Card 中：
-const trace = useResponseTrace(responseTraces, resolveResponseTrace?.(context));
+// 完成、失败同样上报普通事件；不调用 start/finish/markCancelled。
+traces.report(responseId, {
+  type: "my-error",
+  name: "错误",
+  content: errorPayload,
+});
+
+// 任意 Card 或其他组件：
+const trace = useResponseTrace(traces, responseId);
 const [open, setOpen] = useState(false);
 
-{responseTraces && <button
-  disabled={!trace.record}
-  onClick={() => setOpen(true)}
->查看响应过程</button>}
+<button onClick={() => setOpen(true)}>查看响应过程</button>
+<ResponseTraceDialog open={open} trace={trace} onClose={() => setOpen(false)} />
 
-<ResponseTraceDialog
-  open={open}
-  trace={trace.record}
-  onClose={() => setOpen(false)}
-/>
-
-// 会话业务拥有者销毁时：stop(); traces.dispose();
+// 当前拥有者释放时：traces.dispose();
 ```
 
-`useResponseTrace(store, ref)` 是模块导出的普通 hook。不存在全局共享 store；使用方明确传入当前会话的记录器与真实响应引用。
+Store 只提供 report、getSnapshot、subscribe、dispose。hook 直接返回记录或 undefined；没有 recording/ready/outcome。每次上报生成冻结快照，保留旧快照，UI 不修改源数据。
 
-弹窗内部处理 `open=false` 与空记录，调用方无需 `{open && trace.record && ...}`。同一次响应的多个 Card 可以解析到同一 ref；重复开关弹窗不会重新发请求。Assistant 与 AI 错误 Card 已接入。
+弹窗内部处理关闭和空记录，不要求调用方条件渲染。关闭或返回列表仅改变查看状态，不重新请求、执行工具或修改消息。
 
-### 22.6 采集、结束与整理
+### 22.5 当前 demo 接入
 
-1. `run-initialized` 建立记录并复制一次 run input，订阅在首次发送前完成。
-2. 事件按收到顺序保存 `{sequence, receivedAt, event}` 独立副本，不随每个 token 复制整份 messages/state，也不通知 Card 重渲染。
-3. `RUN_FINISHED/RUN_ERROR` 记录结束意图；到 `run-finalized` 后才调用一次接入方的 `projectEvents`，复制并冻结通用 entries 与完整原始事件。
-4. 记录器只管理响应生命周期；不合成“本次请求/思考/工具/回答/结束”等业务节点，不计算工具计数。
-5. 本地取消由现有业务节点调用 `markCancelled(ref)`，仍等待 finalize；不宣称 BE 已确认停止。未知异常保留不完整状态。
-6. 已冻结数据不再被迟到帧改写；业务拥有者释放订阅及记录域。Card 卸载或关闭弹窗不删除数据。
+数据路径改为：
 
-当前 demo 的 `projectBackendResponseTrace` 整理自有协议：按真实 ID 合并 thinking/streaming 片段，function_call 到相同 ID 的 tool_result 构成调用观测区间；结果帧为瞬时事件。重复同名工具仍按 ID 区分，缺少结束/结果时不伪造耗时。未知事件及所有完整字段仍保留。这些规则只在 demo 接入层存在。
+```text
+AG-UI Agent → 独立响应记录观察器 → 事件处理插件 → traces.report → 只读弹窗
+           └→ 原有消息处理 → Runtime → Message Card（按实际 message.id 读取记录）
+```
 
-### 22.7 耗时口径与图表
+- 新增独立的 createAgUiResponseTraceObserver；旧 observeAgUiAgentLifecycle 保持不动，不混合两者职责。
+- 标准 AG-UI 文本/推理/工具及未知事件在插件内处理，不依赖 demo 的 Runtime 或 Card。默认标准事件批次在源清理后整理为只读记录，记录器没有 finish API 或成功/错误状态。
+- 当前后端的原生帧在有损转换之前通过标准 RAW 事件保留；backendEvents 负责合并原生文本、工具 ID 关联和完整字段。已有消息转换继续原有行为；无 trace 专用开关或取消回调。
+- 插件按 sourceId + 实际 message.id 关联记录，支持同一响应的多个消息以及 A/B 同名消息；初始历史消息不会误关联到新响应。不再反查最后一条 user，不扫描 Turn/Branch，也不使用“最新一个响应”查找历史 Card。
+- runtime 仅创建、注册和清理观察器；原来的 parseMessage 自定义回调、Agent 回调与 traceRefs Map 全部移除。
+- 原 projectBackendResponseTrace/projectEvents 接口仍然移除；通用记录器不导入 AG-UI 或 AgUiLifecycleNotification。
+- SDK 的连接/解析错误由新观察器上报为普通事件，不额外增加记录器生命周期状态或取消追踪。
+- Assistant 和 AI 错误 Card 经已有 extensions，用自己的消息 ID 读取记录；按钮仍由原有 branchStatus 控制。
+- 不改 core；正文编辑、引用、Chat from here、分支与队列保持原语义。
 
-- 总耗时：浏览器观察到初始化至 finalize 的时间，不含发送队列等待；不冒充 BE 精确执行时长。
-- 每个事件：接入方上报的 endedAt - startedAt；缺少结束时间显示“—”，瞬时上报显示 0 ms。
-- 时间图使用同一响应时间轴，每个上报事件一行，以起点偏移及持续宽度展示，右侧显示毫秒值；可点击时间条查看内容。
-- 允许并发/重叠，事件耗时相加不等于总耗时。
-- 不展示阶段计数、工具调用/返回计数、原始事件计数、token、费用或无来源指标。
+### 22.6 时间口径
 
-### 22.8 弹窗布局与交互
+- 总耗时是已上报事件范围的跨度：最晚时间点减最早 startedAt。
+- 最晚时间点取 endedAt ?? startedAt；不再统计初始化到 finalize 的运行生命周期时间。未上报的请求等待不在其中。
+- 单事件只有明确起止时间才显示耗时，否则显示“—”。瞬时事件可上报相同起止点。
+- 使用同一毫秒基准，允许区间重叠，不累加事件耗时作为总耗时。
+- 当前 demo 的 streaming 使用自己收到 streaming_started/streaming_completed 的观测区间；缺少开始时从首个收到的正文帧开始。规则只在 demo 接入层，不是组件协议。
+- 不展示工具计数、阶段计数、原始事件计数或无来源指标。
 
-- 小标题和关闭按钮；不加状态摘要或装饰性统计卡片。
-- 第一部分是紧凑时间图：总耗时、统一时间轴与各事件耗时。
-- 第二部分仅有 `event / content` 两列表格，每行内容为单行摘要；长内容不会撑开概览。
-- 点击内容或时间条，在当前弹窗内切换为详情页：返回列表、事件名称、完整内容，可展开“完整数据”。不嵌套第二个弹窗，也不设置常驻侧栏。
-- 返回列表恢复查看位置与焦点。弹窗尺寸随内容展开并受视口高度限制，不为不重要内容预留大块空间。
-- Portal 挂到消息列表外；管理 Escape、Tab 范围、关闭回焦与滚动锁定，不改 core 焦点机制。
-- 空记录时展示空事件列表。临时编辑消息不改变原始过程内容或 Chat from here 语义。
+### 22.7 弹窗布局
+
+小标题与关闭按钮；第一部分为紧凑的总耗时与事件时间图，第二部分仅 event/content 表格。
+
+event 优先显示 name，没有 name 时显示 type；content 为单行摘要。点击内容或时间条，在同一弹窗内查看完整内容，可展开完整数据并返回列表。没有常驻侧栏、额外统计卡片或第二个弹窗。
+
+保留 Portal、Escape、Tab 范围、关闭回焦和返回列表恢复位置；不改变 core 焦点机制。空记录显示空列表。
+
+### 22.8 验证边界
+
+- 不使用任何 Agent/AG-UI 通知即可上报自定义 type/name，立即得到只读记录。
+- completed/error 被当成普通事件，可继续追加；不存在模块终态推断。
+- 同一事件更新顺序稳定，旧快照与调用方数据不被修改，缺少结束时间不伪造。
+- 不同 responseId 隔离，拥有者释放后清理记录与订阅。
+- demo 的多段文本、原始字段、同名工具关联、未知帧与连接/解析错误可查看。
+- Message Card 依自身生成状态控制按钮，原有 A/B、消息编排及工具闭环行为保持。
+- 组件不实现消息删除后的额外动作。
 
 ### 22.9 DeepSeek 最小工具闭环
 
@@ -1717,12 +1722,3 @@ completed（整个循环结束后一次）
 最多请求模型 3 次；错误参数、未知调用、循环超限及流提前断开均明确失败，不伪造成功。每轮独立思考/文本 ID，按当前模型要求回传 reasoning_content。沿用真实模型配置，已验证实际工具执行、回填与后续回答。
 
 修改位于 BE 的 `DeepSeekStreamingChatService.java` 和 `ServerMessage.java`；FE 转换器保留调用 ID 并支持独立 tool_result。后端现有 `application.yml` 用户修改保持原样，以 `--copilot.demo-tool.enabled=true` 显式开启。
-
-### 22.10 验收与验证
-
-- 通用组件不认识业务类型；自定义名称/内容/时间原样呈现，不自动合并 AG-UI 工具或思考。
-- 图表与 event/content 列表可独立使用，无 Card/RuntimeView 依赖；关闭、空记录、详情/返回及 JSON 全字段可用。
-- 实际 demo 自己上报多段文本和工具流程，未知帧仍可检查。
-- 消息被清空后事件仍保留，A/B/run 隔离；生成中不能打开，失败与取消后已收到内容可查看。
-- 原有消息编辑、引用、Chat from here 与 core 行为保持原语义。
-- 通用记录、接入层整理、弹窗交互及 Card 接入都有针对性回归；BE 已通过本地模拟模型服务的 7 项闭环/错误/上限测试，并完成真实 DeepSeek 联调。

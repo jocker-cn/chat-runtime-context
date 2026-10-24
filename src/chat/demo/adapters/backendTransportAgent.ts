@@ -34,9 +34,6 @@ export type BackendTransport = {
 };
 
 export type BackendTransportAgentOptions = {
-  /** Expose original backend payloads as standard RAW events without changing messages. */
-  captureRawEvents?: boolean;
-  onRunCancelled?: (input: RunAgentInput) => void;
   agentId?: string;
   description?: string;
   threadId?: string;
@@ -54,8 +51,6 @@ export type BackendTransportAgentCloseOptions = {
 export class BackendTransportAgent extends AbstractAgent {
   private readonly transport: BackendTransport;
   private readonly handleRunErrors: boolean;
-  private readonly captureRawEvents: boolean;
-  private readonly onRunCancelled?: (input: RunAgentInput) => void;
   private activeRun?: {
     input: RunAgentInput;
     cancelled: boolean;
@@ -75,8 +70,6 @@ export class BackendTransportAgent extends AbstractAgent {
     });
     this.transport = transport;
     this.handleRunErrors = options.handleRunErrors ?? false;
-    this.captureRawEvents = options.captureRawEvents ?? false;
-    this.onRunCancelled = options.onRunCancelled;
     if (options.onDisconnected) {
       this.onDisconnected = options.onDisconnected;
     }
@@ -101,7 +94,6 @@ export class BackendTransportAgent extends AbstractAgent {
     const run = this.activeRun;
     if (!run || run.cancelled) return;
     run.cancelled = true;
-    try { this.onRunCancelled?.(run.input); } catch { /* Optional observation cannot cancel the cancellation. */ }
 
     try {
       this.transport.cancel?.(run.input);
@@ -147,7 +139,8 @@ export class BackendTransportAgent extends AbstractAgent {
           onMessage: (message) => {
             if (subscriber.closed || run.cancelled) return;
             try {
-              if (this.captureRawEvents) emit({ type: EventType.RAW, source: "copilot-backend", event: message });
+              // Preserve native fields for independent AG-UI observers before the message conversion.
+              emit({ type: EventType.RAW, source: "copilot-backend", event: message });
               const conversion = this.handleRunErrors && message.event === "error"
                 ? converter.fail(message.error ?? "Backend error.")
                 : converter.convert(message);

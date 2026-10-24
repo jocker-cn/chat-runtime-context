@@ -87,26 +87,26 @@ export function ResponseTraceDialog({ open, trace, onClose }: ResponseTraceDialo
         </header>
         {selected ? <section ref={detailRef} className={styles.details} aria-label="事件详情" tabIndex={-1}>
           <button type="button" onClick={() => setSelectedId(undefined)}>← 返回列表</button>
-          <h3>{selected.event}</h3>
+          <h3>{selected.name ?? selected.type}</h3>
           <Data value={selected.content} />
           {selected.details !== undefined && <details className={styles.rawDetails}>
             <summary>完整数据</summary><Data value={selected.details} />
           </details>}
         </section> : <div className={styles.overview} ref={overviewRef}>
           <section className={styles.chart} aria-label="事件耗时图">
-            <div className={styles.chartTitle}>总耗时 <strong>{trace ? `${trace.summary.durationMs} ms` : "—"}</strong></div>
-            <div className={styles.axis}><span>0 ms</span><span>{trace?.summary.durationMs ?? 0} ms</span></div>
+            <div className={styles.chartTitle}>总耗时 <strong>{trace ? `${trace.durationMs} ms` : "—"}</strong></div>
+            <div className={styles.axis}><span>0 ms</span><span>{trace?.durationMs ?? 0} ms</span></div>
             {trace?.entries.map((entry, index) => {
-              const total = Math.max(1, trace.summary.durationMs);
+              const total = Math.max(1, trace.durationMs);
               const start = Math.min(100, Math.max(0, (entry.startedAt - trace.startedAt) / total * 100));
               const duration = entry.endedAt === undefined ? undefined : Math.max(0, entry.endedAt - entry.startedAt);
               const width = Math.min(100 - start, (duration ?? 0) / total * 100);
               return <div className={styles.chartRow} key={entry.id}>
-                <span className={styles.eventName} title={entry.event}>{entry.event}</span>
+                <span className={styles.eventName} title={entry.name ?? entry.type}>{entry.name ?? entry.type}</span>
                 <div className={styles.track}>
                   <button type="button" className={`${styles.bar} ${styles[`color${index % 4}`]}`}
                     style={{ left: `${start}%`, width: `${width}%` }}
-                    aria-label={`${entry.event} · ${duration === undefined ? "耗时未上报" : `${duration} ms`}`}
+                    aria-label={`${entry.name ?? entry.type} · ${duration === undefined ? "耗时未上报" : `${duration} ms`}`}
                     onClick={() => selectEntry(entry.id)} />
                 </div>
                 <span className={styles.duration}>{duration === undefined ? "—" : `${duration} ms`}</span>
@@ -116,9 +116,9 @@ export function ResponseTraceDialog({ open, trace, onClose }: ResponseTraceDialo
           <table className={styles.events}>
             <thead><tr><th scope="col">event</th><th scope="col">content</th></tr></thead>
             <tbody>{trace?.entries.map((entry) => <tr key={entry.id}>
-              <td><span className={styles.eventName}>{entry.event}</span></td>
+              <td><span className={styles.eventName}>{entry.name ?? entry.type}</span></td>
               <td><button type="button" className={styles.content} data-entry-id={entry.id}
-                aria-label={`查看 ${entry.event} 内容`} onClick={() => selectEntry(entry.id)}>
+                aria-label={`查看 ${entry.name ?? entry.type} 内容`} onClick={() => selectEntry(entry.id)}>
                 {preview(entry.content)}
               </button></td>
             </tr>)}</tbody>

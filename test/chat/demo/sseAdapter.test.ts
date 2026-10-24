@@ -49,7 +49,7 @@ describe("SseAdapterAgent", () => {
     });
     stream.message({ event: "completed" });
 
-    expect(events.map((event) => event.type)).toEqual([
+    expect(events.filter((event) => event.type !== EventType.RAW).map((event) => event.type)).toEqual([
       EventType.RUN_STARTED,
       EventType.ACTIVITY_SNAPSHOT,
       EventType.ACTIVITY_SNAPSHOT,
@@ -58,6 +58,12 @@ describe("SseAdapterAgent", () => {
       EventType.TEXT_MESSAGE_END,
       EventType.ACTIVITY_SNAPSHOT,
       EventType.RUN_FINISHED,
+    ]);
+    expect(events.filter((event) => event.type === EventType.RAW)).toMatchObject([
+      { source: "copilot-backend", event: { event: "streaming_started", message: { id: "answer" } } },
+      { source: "copilot-backend", event: { event: "streaming", message: { id: "answer", content: "hello" } } },
+      { source: "copilot-backend", event: { event: "streaming_completed", message: { id: "answer" } } },
+      { source: "copilot-backend", event: { event: "completed" } },
     ]);
     expect(events.find(
       (event) => event.type === EventType.TEXT_MESSAGE_CONTENT,

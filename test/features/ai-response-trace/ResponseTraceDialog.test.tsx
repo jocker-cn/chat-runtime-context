@@ -5,15 +5,12 @@ import { ResponseTraceDialog, type ResponseTraceRecord } from "../../../src/feat
 
 afterEach(cleanup);
 const trace: ResponseTraceRecord = {
-  ref: { sourceId: "agent-a", threadId: "s", runId: "r" },
-  input: { threadId: "s", runId: "r", messages: [], tools: [], context: [], state: {}, forwardedProps: {} },
-  outcome: "completed", startedAt: 100, endedAt: 300, events: [],
+  id: 'response', startedAt: 100, endedAt: 300, durationMs: 200,
   entries: [
-    { id: "result", event: "caller-defined", startedAt: 120, endedAt: 180,
+    { id: "result", type: "opaque-type", name: "caller-defined", startedAt: 120, endedAt: 180,
       content: '{"sum":3,"allFields":{"nested":[1,null,true]}}', details: { customField: "untouched" } },
-    { id: "no-duration", event: "another-custom-event", startedAt: 190, content: "no end reported" },
+    { id: "no-duration", type: "another-custom-event", startedAt: 190, content: "no end reported" },
   ],
-  summary: { durationMs: 200, eventCount: 2 },
 };
 
 describe("ResponseTraceDialog", () => {

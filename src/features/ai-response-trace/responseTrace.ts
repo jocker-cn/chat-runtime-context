@@ -1,159 +1,106 @@
 import { useCallback, useSyncExternalStore } from "react";
-import type { BaseEvent, RunAgentInput } from "@ag-ui/client";
-import type { AgUiLifecycleNotification } from "../../plugins/ag-ui-lifecycle";
 
-export interface ResponseTraceRef {
-  sourceId: string;
-  threadId: string;
-  runId: string;
-}
-
-export type ResponseTraceOutcome = "completed" | "error" | "cancelled" | "interrupted" | "incomplete";
-export interface ResponseTraceEvent {
-  sequence: number;
-  receivedAt: number;
-  event: BaseEvent;
-}
-
-/** Display data reported by the integration; event names have no built-in semantics. */
+/** Names and types belong to the caller; this module knows no protocol. */
 export interface ResponseTraceEntry {
   id: string;
-  event: string;
-  content: unknown;
+  type: string;
+  name?: string;
+  content?: unknown;
   startedAt: number;
   endedAt?: number;
   details?: unknown;
 }
 
-export type ResponseTraceProjector = (events: readonly ResponseTraceEvent[]) => readonly ResponseTraceEntry[];
+export type ResponseTraceReport = Omit<ResponseTraceEntry, "id" | "startedAt"> & {
+  id?: string;
+  startedAt?: number;
+};
 
 export interface ResponseTraceRecord {
-  ref: ResponseTraceRef;
-  input: RunAgentInput;
-  outcome: ResponseTraceOutcome;
-  error?: string;
+  id: string;
   startedAt: number;
   endedAt: number;
-  events: readonly ResponseTraceEvent[];
+  durationMs: number;
   entries: readonly ResponseTraceEntry[];
-  summary: { durationMs: number; eventCount: number };
-}
-
-export interface ResponseTraceState {
-  status: "unavailable" | "recording" | "ready";
-  record?: ResponseTraceRecord;
 }
 
 export interface ResponseTraceStore {
-  record(notification: AgUiLifecycleNotification): void;
-  markCancelled(ref: ResponseTraceRef): void;
-  getSnapshot(ref?: ResponseTraceRef): ResponseTraceState;
-  subscribe(ref: ResponseTraceRef | undefined, listener: () => void): () => void;
+  /** Omit id to append; reuse an id to update an event without changing its order. */
+  report(responseId: string, event: ResponseTraceReport): string | undefined;
+  getSnapshot(responseId?: string): ResponseTraceRecord | undefined;
+  subscribe(responseId: string | undefined, listener: () => void): () => void;
   dispose(): void;
 }
 
-const unavailable: ResponseTraceState = Object.freeze({ status: "unavailable" });
-const recording: ResponseTraceState = Object.freeze({ status: "recording" });
-const keyOf = (ref: ResponseTraceRef) => JSON.stringify([ref.sourceId, ref.threadId, ref.runId]);
-type ProtocolEvent = BaseEvent & Record<string, unknown>;
-type Run = {
-  ref: ResponseTraceRef;
-  input: RunAgentInput;
-  startedAt: number;
-  events: ResponseTraceEvent[];
-  outcome?: ResponseTraceOutcome;
-  error?: string;
-  state: ResponseTraceState;
-};
-
-/** A session-owned recorder. No Runtime, message reader or mounted Card is required. */
-export function createResponseTraceStore(options: {
-  projectEvents?: ResponseTraceProjector;
-} = {}): ResponseTraceStore {
-  const runs = new Map<string, Run>();
+/** Read-only event snapshots, scoped to the caller's chosen response ID. */
+export function createResponseTraceStore(): ResponseTraceStore {
+  const responses = new Map<string, {
+    entries: Map<string, ResponseTraceEntry>;
+    sequence: number;
+    record?: ResponseTraceRecord;
+  }>();
   const listeners = new Map<string, Set<() => void>>();
   let disposed = false;
-  const publish = (key: string) => listeners.get(key)?.forEach((listener) => listener());
   return {
-    record(notification) {
-      if (disposed || notification.type === "messages-changed") return;
-      const ref = { sourceId: notification.sourceId, threadId: notification.threadId, runId: notification.runId };
-      const key = keyOf(ref);
-      let run = runs.get(key);
-      if (run?.state.status === "ready") return;
-      if (!run) {
-        run = { ref, input: structuredClone(notification.input), startedAt: notification.observedAt, events: [], state: recording };
-        runs.set(key, run);
-        publish(key);
+    report(responseId, event) {
+      if (disposed) return;
+      let response = responses.get(responseId);
+      if (!response) {
+        response = { entries: new Map(), sequence: 0 };
+        responses.set(responseId, response);
       }
-      if (notification.type === "event") {
-        const event = structuredClone(notification.event) as ProtocolEvent;
-        run.events.push({ sequence: run.events.length + 1, receivedAt: notification.observedAt, event });
-        if (event.type === "RUN_ERROR") {
-          run.outcome = "error";
-          run.error = String(event.message ?? "响应失败");
-        } else if (event.type === "RUN_FINISHED") {
-          const outcome = (event.outcome as { type?: string } | undefined)?.type;
-          run.outcome = outcome === "cancelled" ? "cancelled" : outcome === "interrupt" ? "interrupted" : "completed";
-        }
-      } else if (notification.type === "run-failed") {
-        if (run.outcome !== "cancelled") {
-          run.outcome = "error";
-          run.error = notification.error.message;
-        }
-      } else if (notification.type === "run-finalized") {
-        const outcome = run.outcome ?? "incomplete";
-        const endedAt = notification.observedAt;
-        const entries = options.projectEvents ? structuredClone(options.projectEvents(run.events)) : run.events.map((entry) => ({
-          id: String(entry.sequence), event: entry.event.type, content: entry.event, startedAt: entry.receivedAt,
-        }));
-        const record: ResponseTraceRecord = {
-          ref, input: run.input, startedAt: run.startedAt, endedAt, outcome, error: run.error,
-          events: run.events, entries,
-          summary: { durationMs: Math.max(0, endedAt - run.startedAt), eventCount: run.events.length },
-        };
-        freeze(record);
-        run.state = Object.freeze({ status: "ready", record });
-        publish(key);
+      let id = event.id;
+      if (id === undefined) {
+        do { id = `event-${++response.sequence}`; } while (response.entries.has(id));
       }
+      const previous = response.entries.get(id);
+      const entry: ResponseTraceEntry = {
+        ...previous, ...structuredClone(event), id,
+        startedAt: event.startedAt ?? previous?.startedAt ?? Date.now(),
+      };
+      freeze(entry);
+      response.entries.set(id, entry);
+      const entries = Object.freeze([...response.entries.values()]);
+      let startedAt = Infinity;
+      let endedAt = -Infinity;
+      for (const item of entries) {
+        startedAt = Math.min(startedAt, item.startedAt);
+        endedAt = Math.max(endedAt, item.endedAt ?? item.startedAt);
+      }
+      response.record = Object.freeze({
+        id: responseId, entries, startedAt, endedAt, durationMs: Math.max(0, endedAt - startedAt),
+      });
+      listeners.get(responseId)?.forEach((listener) => listener());
+      return id;
     },
-    markCancelled(ref) {
-      const run = runs.get(keyOf(ref));
-      if (run?.state.status === "recording") run.outcome = "cancelled";
-    },
-    getSnapshot: (ref) => ref ? runs.get(keyOf(ref))?.state ?? unavailable : unavailable,
-    subscribe(ref, listener) {
-      if (!ref || disposed) return () => {};
-      const key = keyOf(ref);
-      const set = listeners.get(key) ?? new Set();
+    getSnapshot: (id) => id === undefined ? undefined : responses.get(id)?.record,
+    subscribe(id, listener) {
+      if (id === undefined || disposed) return () => {};
+      const set = listeners.get(id) ?? new Set();
       set.add(listener);
-      listeners.set(key, set);
-      return () => { set.delete(listener); if (!set.size) listeners.delete(key); };
+      listeners.set(id, set);
+      return () => { set.delete(listener); if (!set.size) listeners.delete(id); };
     },
     dispose() {
       disposed = true;
-      runs.clear();
+      responses.clear();
       listeners.forEach((set) => set.forEach((listener) => listener()));
       listeners.clear();
     },
   };
 }
 
-export function useResponseTrace(store?: ResponseTraceStore, ref?: ResponseTraceRef): ResponseTraceState {
-  const sourceId = ref?.sourceId;
-  const threadId = ref?.threadId;
-  const runId = ref?.runId;
-  const readRef = useCallback(() => sourceId !== undefined && threadId !== undefined && runId !== undefined
-    ? { sourceId, threadId, runId } : undefined, [sourceId, threadId, runId]);
-  const subscribe = useCallback((listener: () => void) => store?.subscribe(readRef(), listener) ?? (() => {}), [store, readRef]);
-  const getSnapshot = useCallback(() => store?.getSnapshot(readRef()) ?? unavailable, [store, readRef]);
+export function useResponseTrace(store?: ResponseTraceStore, responseId?: string): ResponseTraceRecord | undefined {
+  const subscribe = useCallback((listener: () => void) => store?.subscribe(responseId, listener) ?? (() => {}), [store, responseId]);
+  const getSnapshot = useCallback(() => store?.getSnapshot(responseId), [store, responseId]);
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
-function freeze(value: unknown): void {
-  if (!value || typeof value !== "object" || Object.isFrozen(value)) return;
+function freeze(value: unknown, seen = new WeakSet<object>()): void {
+  if (!value || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
   Object.freeze(value);
-  Object.values(value).forEach(freeze);
+  Object.values(value).forEach((item) => freeze(item, seen));
 }
 
 export function parseJson(value: string): unknown {

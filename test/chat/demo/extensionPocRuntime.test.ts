@@ -101,15 +101,13 @@ describe("extension-poc branch errors", () => {
       const branch = controller.runtime.getSnapshot().branchesById[id]!;
       expect(branch.status).toBe("cancelled");
       expect(branch.messageReader.getMessages().some((message) => message.role === "activity" && message.activityType === "error")).toBe(false);
-      const ref = controller.resolveResponseTrace({ turnId: handle.turnId, branchId: id })!;
-      await vi.waitFor(() => expect(controller.responseTraces.getSnapshot(ref).status).toBe("ready"));
-      expect(controller.responseTraces.getSnapshot(ref).record?.outcome).toBe("cancelled");
+
     }
   });
 });
 
 describe("extension-poc session runtime", () => {
-  it("records original events outside message filtering and resolves each branch's own finalized trace", async () => {
+  it("records native event data independently and resolves each branch's own response ID", async () => {
     const { controller, handle, a, b } = await startChat();
     a.message({ event: "thinking_started", message: { id: "think-a" } });
     a.message({ event: "thinking_delta", message: { id: "think-a", content: "Before tool" } });
@@ -119,26 +117,28 @@ describe("extension-poc session runtime", () => {
     a.message({ event: "messages_snapshot", messages: [] });
     a.message({ event: "streaming_started", message: { id: "final-a" } });
     a.message({ event: "streaming", message: { id: "final-a", content: "Three" } });
-    const context = { turnId: handle.turnId, branchId: handle.branchIds[0]! };
+    const context = { sourceId: "agent-a", messageId: "final-a" };
     await vi.waitFor(() => expect(controller.resolveResponseTrace(context)).toBeDefined());
     const ref = controller.resolveResponseTrace(context)!;
-    expect(controller.responseTraces.getSnapshot(ref).record).toBeUndefined();
+    expect(controller.responseTraces.getSnapshot(ref)?.entries.some((entry) => entry.type === "streaming")).toBe(true);
     a.message({ event: "streaming_completed", message: { id: "final-a" } });
     a.message({ event: "completed" });
-    await vi.waitFor(() => expect(controller.responseTraces.getSnapshot(ref).status).toBe("ready"));
-    const record = controller.responseTraces.getSnapshot(ref).record!;
-    expect(record.entries.find((entry) => entry.event === "thinking")?.content).toBe("Before tool");
-    expect(record.entries.find((entry) => entry.event === "tool_result")?.content).toContain('"preserved":true');
-    const messages = controller.runtime.getSnapshot().branchesById[context.branchId]!.messageReader.getMessages();
+    await vi.waitFor(() => expect(controller.responseTraces.getSnapshot(ref)?.entries.some((entry) => entry.type === "completed")).toBe(true));
+    const record = controller.responseTraces.getSnapshot(ref)!;
+    expect(record.entries.find((entry) => entry.type === "thinking")?.content).toBe("Before tool");
+    expect(record.entries.find((entry) => entry.type === "tool_result")?.content).toContain('"preserved":true');
+    const messages = controller.runtime.getSnapshot().branchesById[handle.branchIds[0]!]!.messageReader.getMessages();
     expect(messages.some((message) => message.role === "tool")).toBe(false);
-    expect(record.entries.filter((entry) => entry.event === "tool_result")).toHaveLength(1);
-    expect(record.outcome).toBe("completed");
-    const refB = controller.resolveResponseTrace({ turnId: handle.turnId, branchId: handle.branchIds[1]! })!;
-    expect(refB.sourceId).toBe("agent-b");
-    expect(controller.responseTraces.getSnapshot(refB).status).toBe("recording");
+    expect(record.entries.filter((entry) => entry.type === "tool_result")).toHaveLength(1);
+    expect(record.entries.some((entry) => entry.type === "completed")).toBe(true);
+    b.message({ event: "streaming_started", message: { id: "final-b" } });
+    await vi.waitFor(() => expect(controller.resolveResponseTrace({ sourceId: "agent-b", messageId: "final-b" })).toBeDefined());
+    const refB = controller.resolveResponseTrace({ sourceId: "agent-b", messageId: "final-b" })!;
+    expect(refB).not.toBe(ref);
+    expect(controller.responseTraces.getSnapshot(refB)?.entries.some((entry) => entry.type === "function_call")).toBe(false);
     b.message({ event: "completed" });
-    await vi.waitFor(() => expect(controller.responseTraces.getSnapshot(refB).status).toBe("ready"));
-    expect(controller.responseTraces.getSnapshot(refB).record?.entries.some((entry) => entry.event === "function_call")).toBe(false);
+    await vi.waitFor(() => expect(controller.responseTraces.getSnapshot(refB)).toBeDefined());
+    expect(controller.responseTraces.getSnapshot(refB)?.entries.some((entry) => entry.type === "function_call")).toBe(false);
   });
 
   it("restores A's history and initializes both mock agents with the full transcript", async () => {
