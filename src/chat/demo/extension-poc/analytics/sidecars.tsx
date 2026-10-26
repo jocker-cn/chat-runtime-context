@@ -1,26 +1,37 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { PendoProvider, usePendo, type PendoConfig } from "../../../../features/pendo";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { createPendoScript, track } from "../../../../features/pendo";
 import { chatData } from "../chatHistory";
 import { observeQueue, observeRuntime, observeSessions, type ObservableQueue, type ObservableRuntime } from "./observe";
 
 /** Vite/local-demo policy stays at the host boundary; never copy this to Next. */
+function demoAnalyticsEnabled() {
+  return typeof window !== "undefined"
+    && ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname)
+    && window.location.pathname === "/extension-poc"
+    && import.meta.env.VITE_PENDO_ENABLED === "true"
+    && !!import.meta.env.VITE_PENDO_PUBLIC_APP_ID;
+}
+
 export function ExtensionPocAnalytics({ children }: { children: ReactNode }) {
-  const [localWorkspace, setLocalWorkspace] = useState(false);
-  useEffect(() => {
-    setLocalWorkspace(["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname)
-      && window.location.pathname === "/extension-poc");
+  useLayoutEffect(() => {
+    if (document.getElementById("pendo-install")) return;
+    const source = createPendoScript({
+      enabled: demoAnalyticsEnabled(),
+      publicAppId: import.meta.env.VITE_PENDO_PUBLIC_APP_ID ?? "",
+      environment: "local",
+    });
+    if (!source) return;
+    const script = document.createElement("script");
+    script.id = "pendo-install";
+    script.textContent = source;
+    document.head.append(script);
   }, []);
-  return <PendoProvider
-    enabled={localWorkspace && import.meta.env.VITE_PENDO_ENABLED === "true"}
-    publicAppId={import.meta.env.VITE_PENDO_PUBLIC_APP_ID ?? ""}
-    region={(import.meta.env.VITE_PENDO_REGION || "io") as PendoConfig["region"]}
-    environment="local"
-  >{children}</PendoProvider>;
+  return children;
 }
 
 /** Demo-specific session and effective-view observation; renders no DOM. */
 export function PendoWorkspaceSidecar({ view }: { view: string }) {
-  const { enabled, track } = usePendo();
+  const enabled = demoAnalyticsEnabled();
   const lastView = useRef<{ view: string; track: typeof track }>(undefined);
   useEffect(() => {
     if (!enabled) return;
@@ -40,7 +51,7 @@ export function PendoChatSidecar({ runtime, queue, secondaryEnabled }: {
   queue: ObservableQueue;
   secondaryEnabled: boolean;
 }) {
-  const { enabled, track } = usePendo();
+  const enabled = demoAnalyticsEnabled();
   const previousEnabled = useRef(secondaryEnabled);
   useEffect(() => {
     if (!enabled) return;

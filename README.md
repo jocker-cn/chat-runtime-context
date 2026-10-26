@@ -31,26 +31,25 @@ pnpm build
 ```env
 VITE_PENDO_ENABLED=true
 VITE_PENDO_PUBLIC_APP_ID=your-public-web-app-id
-VITE_PENDO_REGION=io
 ```
 
-`io` 为当前美国区域，欧盟区域使用 `eu`。Public App ID 是公开的浏览器安装标识，
+脚本固定使用 cdn.pendo.io，不需要 region 参数。Public App ID 是公开的浏览器安装标识，
 不要填写 Track Event shared secret、Integration Key 或模型密钥。修改环境变量后重启 Vite。
 `.env.local` 已忽略；新环境默认关闭，不会自动发送测试数据。
 
 **迁移到 Next.js + React + TypeScript：只复制 `src/features/pendo/`。**
 
-AI 对话采集使用 `usePendo().trackAgent`，在业务发送、明确结束及评价节点主动提交；无需迁移 queue 或聊天 Sidecar。
-它与普通 `track` 共用禁用保护、SDK 就绪前缓冲和退出 flush；现有 demo 不自动上传对话正文。
-参数与完整示例见 [Pendo 模块说明](src/features/pendo/README.md#ai-对话事件由业务节点主动提交)。
+AI 对话采集使用 `trackAgent`，在业务发送、明确结束及评价节点主动提交；无需迁移 queue 或聊天 Sidecar。
+它与普通 `track` 共用开关保护和页面退出 flush，直接调用 window.pendo；现有 demo 不自动上传对话正文。
+参数与完整示例见 [Pendo 模块说明](src/features/pendo/README.md#直接调用埋点方法)。
 完整接入与 market 开关示例见 [Pendo 接入说明](src/features/pendo/README.md)。
-该目录只负责 SDK、身份和通用上报，通过 `PendoProvider` 参数接收配置，
+该目录通过 `createPendoScript(config)` 生成官方安装脚本，在根节点用 script / next/script 加载，并提供直接调用 window.pendo 的事件方法，
 不读取 Vite / Next 环境变量，也不依赖 chatData、queue、Runtime 或业务事件名。
 
-在 App 或业务 layout 中挂载一次 `PendoProvider`，通过
-`enabled={enabledMarkets.includes(market) && otherCondition}` 决定是否启用；默认关闭。
-业务中可始终调用 `usePendo().track({ name, properties })`，关闭时为 no-op，无需每个埋点重复判断。
-Page/Feature 自动统计只需 Provider 与后台标记；无需接入任何聊天组件。
+在 App 根节点用 `createPendoScript({ publicAppId, enabled, visitorId, environment })` 生成脚本，开启时渲染 Script，
+由宿主合并 market 等条件决定 enabled，默认关闭；不再需要 Provider 或 Context。
+业务直接导入 `track({ name, properties })`，关闭时为 no-op，无需每个埋点重复判断。
+Page/Feature 自动统计只需官方 SDK 与后台标记；无需接入任何聊天组件。
 
 本地 demo 的环境变量读取和业务事件投影在 `src/chat/demo/extension-poc/analytics/`：
 
@@ -61,11 +60,10 @@ Page/Feature 自动统计只需 Provider 与后台标记；无需接入任何聊
 两个 Sidecar 只服务本地 demo，实际业务没有 queue 时不需要迁移它们。
 如需自定义业务事件，在现有提交/结果回调或业务自己的只读观察器中调用通用 track 即可。
 Sidecar 不渲染 DOM，不包装或替换业务方法，不修改 core、消息、队列或 WebSocket 协议。
-第三方调用延后到微任务并捕获异常；SDK 被拦截或上报失败不阻止聊天。
-SDK 就绪前最多缓存 100 个业务事件，加载失败后丢弃；不自动重试，刷新页面再尝试。
-订阅随组件卸载或关闭释放，最后一个 Provider 退出时清理 SDK；StrictMode 共享一次初始化。
-已就绪时，页面隐藏/离开及最后一个 Provider 正常卸载前会尽力调用 SDK 的 flushNow；
-market 禁用、身份或应用配置切换则丢弃封装缓冲，不显式 flush。此操作不等待服务端确认，不能保证异常退出时送达。
+第三方调用捕获异常；SDK 被拦截或上报失败不阻止聊天。
+SDK 下载期间由官方 `_q` 排队，不再维护私有缓冲或重试流程。
+脚本保留在浏览器页面中，重复启动不会重复加载；页面隐藏/离开时尽力 flush，不等待服务端确认。
+配置是页面启动开关，更换 App/用户/环境或关闭已经启动的自动采集后应刷新页面；普通埋点在关闭时直接忽略。
 观察器只访问状态/ID，不读取消息正文、工具参数或错误详情。会话与运行 ID 仅用于本地去重，不上传。
 
 | 事件 | 口径 |
