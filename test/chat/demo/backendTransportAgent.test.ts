@@ -7,6 +7,7 @@ import {
   BackendTransportAgent,
   type BackendTransportDisconnectEvent,
 } from "../../../src/chat/demo/adapters/backendTransportAgent";
+import { createBackendMessageEventConverter } from "../../../src/chat/demo/adapters/backendMessage";
 import { SocketAdapterAgent } from "../../../src/chat/demo/adapters/socketAdapter";
 import { WebSocketBackendTransport } from "../../../src/chat/demo/adapters/webSocketBackendTransport";
 import { AgUiAgentSource, SingleAgentRuntime } from "../../../src/core";
@@ -386,3 +387,34 @@ class FakeWebSocket {
 function runInput(runId: string): RunAgentInput {
   return { threadId: "thread", runId, messages: [], tools: [], context: [], state: {}, forwardedProps: {} };
 }
+
+describe("MCP App messages", () => {
+  const input = { threadId: "thread", runId: "run" } as RunAgentInput;
+  const payload = {
+    resourceUri: "ui://record-picker/index.html",
+    toolInput: {},
+    result: { content: [{ type: "text", text: "Ready" }], structuredContent: {} },
+  };
+  const message = { event: "mcp_app" as const, message: { id: "call-1", arguments: payload } };
+
+  it("maps the custom BE payload to one activity", () => {
+    expect(createBackendMessageEventConverter(input).convert(message)).toEqual({
+      terminal: false,
+      events: [{
+        type: EventType.ACTIVITY_SNAPSHOT,
+        messageId: "mcp-app:call-1",
+        activityType: "mcp_app",
+        content: payload,
+        replace: true,
+      }],
+    });
+  });
+
+  it("forwards unknown UI resources and their metadata for the card renderer to decide", () => {
+    const argumentsForUnknownApp = { ...payload, resourceUri: "ui://other/index.html", presentation: "custom" };
+    const unknown = { ...message, message: { id: "call-2", arguments: argumentsForUnknownApp } };
+    expect(createBackendMessageEventConverter(input).convert(unknown).events).toEqual([
+      expect.objectContaining({ messageId: "mcp-app:call-2", content: argumentsForUnknownApp }),
+    ]);
+  });
+});

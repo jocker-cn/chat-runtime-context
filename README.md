@@ -135,3 +135,12 @@ const agent = createAgent({
 ```
 
 `transport` 是判别字段，TypeScript 会据此约束 `options` 并返回对应的 Adapter Agent。两种实现最终都复用 `BackendTransportAgent` 的运行、取消和消息转换逻辑。
+
+## MCP Apps 前端测试
+
+启动 `mcp-component-server`，将 Java BE 的 `COPILOT_MCP_URL` 配置为 `http://127.0.0.1:3001/mcp`。在本项目运行 `pnpm dev` 后打开 `/extension-poc`，点击输入区的「MCP 应用示例提问」填入内容，再点击发送。可以先关闭 Agent B，用 Agent A 单独测试。
+
+- 订单记录选择器出现在消息卡片里。勾选或清空后，卡片下方会显示宿主收到的选中条数。
+- 经营分析看板在消息卡片里显示入口。点击「查看经营看板」才会打开弹窗。
+
+本地 Vite 将 `/mcp-apps` 转发到 MCP 服务的 `/mcp`。使用不同端口时，在 Vite 环境中设置 `VITE_MCP_APPS_URL` 为 MCP 服务地址，例如 `http://127.0.0.1:3001`。

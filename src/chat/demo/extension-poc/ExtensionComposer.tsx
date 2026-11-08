@@ -2,13 +2,18 @@ import {EditorContent, useEditor} from "@tiptap/react";
 import type {Editor} from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import {useCallback, useEffect, useMemo, useState, useSyncExternalStore} from "react";
-import {ToolMenu, useToolMenu} from "../../../core/tools";
+import {ToolMenu, useToolMenu} from "../../../core";
 import {extensionKindLabels, type ExtensionCatalog, type ExtensionChoice, type ExtensionInvocation, type ExtensionItem} from "./extensionModel";
 import {getExtensionWorkspace} from "./extensionWorkspace";
 import {ExtensionReferenceNode} from "./extensionReferenceNode";
 import {createExtensionToolMenu} from "./extensionToolMenu";
 import type {ChatSubmission} from "./extensionPocRuntime";
 import styles from "./ExtensionPocPage.module.css";
+
+const mcpExamples = [
+    "请调用 show_record_picker 打开订单记录选择器，用示例数据让我勾选订单。",
+    "请调用 show_analytics_dashboard 打开经营分析看板，用示例数据展示收入趋势、区域订单和渠道占比。",
+];
 
 export function ExtensionComposer({reference, disabled = false, onClearReference, onNavigateReference, onSend}: {
     reference?: {id: string; text: string};
@@ -180,6 +185,18 @@ export function ExtensionComposer({reference, disabled = false, onClearReference
                     <button type="button" onClick={onClearReference} aria-label="移除引用">×</button>
                 </div>
             )}
+            <section aria-label="MCP 应用示例提问">
+                <p className={styles.mcpExamplesLabel}>MCP 应用示例提问 · 点击填入</p>
+                <div className={styles.mcpExamples}>
+                    {mcpExamples.map((prompt) => (
+                        <button type="button" key={prompt} disabled={!editor || disabled} onClick={() => {
+                            const content = {type: "text", text: prompt};
+                            editor?.chain().focus("end").insertContent(text.trim()
+                                ? {type: "paragraph", content: [content]} : content).run();
+                        }}>{prompt}</button>
+                    ))}
+                </div>
+            </section>
             <div
                 className={styles.editorFrame}
                 onClick={(event) => {

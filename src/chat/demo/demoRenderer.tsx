@@ -20,6 +20,7 @@ import {
 } from "./thinkingActivity";
 import { ApiRequestAction } from "./ApiRequestAction";
 import { MessageContentEditor } from "./MessageContentEditor";
+import { MCP_APP_ACTIVITY_TYPE } from "./mcpAppActivity";
 import { ResponseTraceDialog, useResponseTrace, type ResponseTraceStore } from "../../features/ai-response-trace";
 
 export interface DemoChatExtensions extends ChatExtensionStore {
@@ -44,6 +45,10 @@ export const demoRenderer = createFrameRenderer<DemoMessage>({
     assistant: AssistantMessageCard,
     reasoning: ReasoningMessageCard,
     activity: [
+      {
+        condition: (message) => message.role === "activity" && message.activityType === MCP_APP_ACTIVITY_TYPE,
+        card: () => null,
+      },
       {
         condition: isDemoAiErrorMessage,
         card: AiErrorMessageCard,

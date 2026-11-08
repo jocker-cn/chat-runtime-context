@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useRef, useState} from "react";
 import {
     ChatRuntimeView, ChatTurnNavigationRail, useChatTurnNavigation,
-    createChatExtensionStore, findChatMessageById,
+    createChatExtensionStore, findChatMessageById, ToolPresentationProvider,
     type ChatViewportAdapter, type FrameCardProps,
 } from "../../../core";
 import {demoRenderer, type DemoChatExtensions} from "../demoRenderer";
@@ -11,6 +11,7 @@ import {chatData} from "./chatHistory";
 import {ExtensionComposer} from "./ExtensionComposer";
 import styles from "./ExtensionPocPage.module.css";
 import {PendoChatSidecar} from "./analytics/sidecars";
+import {extensionPocRenderer} from "./McpAppCard";
 
 /** A single session page. History, Runtime and message interactions stay here. */
 export function ExtensionPocPage({sessionId}: { sessionId: string }) {
@@ -125,11 +126,13 @@ export function ExtensionPocPage({sessionId}: { sessionId: string }) {
                                         className={styles.navigationRail} markerClassName={styles.navigationMarker}
                                         tooltipClassName={styles.navigationTooltip}/>
                 <div ref={viewportRef} className={styles.chatViewport}>
-                    <ChatRuntimeView runtime={controller.runtime} renderer={demoRenderer} extensions={extensions}
-                                     renderInput={renderDemoInput}
-                                     classNames={{root: styles.runtime, branch: styles.branch}}
-                                     empty={<p className={styles.chatEmpty}>从下方输入框开始对话。</p>}
-                                     loadingIndicator={<p className={styles.loading}>正在生成回复…</p>}/>
+                    <ToolPresentationProvider>
+                        <ChatRuntimeView runtime={controller.runtime} renderer={extensionPocRenderer} extensions={extensions}
+                                         renderInput={renderDemoInput}
+                                         classNames={{root: styles.runtime, branch: styles.branch}}
+                                         empty={<p className={styles.chatEmpty}>从下方输入框开始对话。</p>}
+                                         loadingIndicator={<p className={styles.loading}>正在生成回复…</p>}/>
+                    </ToolPresentationProvider>
                 </div>
             </div>
 

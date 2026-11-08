@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createPendoScript, track, trackAgent, flushNow, isPendoEnabled, type AgentMessageProperties, type PendoConfig } from "../../../src/features/pendo";
+import { compactAgentResponse, createPendoScript, track, trackAgent, flushNow, isPendoEnabled, type AgentMessageProperties, type PendoConfig } from "../../../src/features/pendo";
 import { getPendo } from "../../../src/features/pendo/client";
 
 const config = { enabled: true, publicAppId: "8c19687f-cf16-4f3c-9f9b-4ab8e9350c5c", visitorId: "45464650", environment: "retail-hk" };
@@ -83,6 +83,43 @@ describe("official Pendo inline script", () => {
     delete sdk.trackAgent;
     trackAgent("prompt", message);
     expect(normal).not.toHaveBeenCalled();
+  });
+
+  it("lets callers compact responses explicitly and sends unprocessed messages unchanged", () => {
+    launch();
+    const content = [
+      "Answer introduction.",
+      "```json", '{ "large": [1, 2, 3] }', "```",
+      "| Name | Value |", "| :--- | ---: |",
+      "| A | 1 |", "| B | 2 |", "| C | 3 |", "| D | 4 |",
+      "", "Answer conclusion.",
+    ].join("\n");
+    const response = { ...message, content };
+    trackAgent("agent_response", { ...response, content: compactAgentResponse(content) });
+    trackAgent("prompt", response);
+    trackAgent("agent_response", response);
+    expect(getPendo()?._q?.[1]).toEqual([
+      "trackAgent", "agent_response", { ...response, content: [
+        "Answer introduction.", "[代码块已省略]",
+        "| Name | Value |", "| :--- | ---: |", "| A | 1 |", "| B | 2 |",
+        "[表格其余 2 行已省略]", "", "Answer conclusion.",
+      ].join("\n") }, { environment: "retail-hk" },
+    ]);
+    expect(getPendo()?._q?.[2]?.[2]).toEqual(response);
+    expect(getPendo()?._q?.[3]?.[2]).toEqual(response);
+    expect(response.content).toBe(content);
+  });
+
+  it("keeps small tables and inline code, and handles CRLF and tilde fences", () => {
+    launch();
+    const content = "Use `a | b`.\r\n~~~json\r\n{}\r\n~~~\r\n\r\nName | Value\r\n--- | ---\r\nA | 1\r\nB | 2\r\n\r\nDone.";
+    trackAgent("agent_response", { ...message, content: compactAgentResponse(content) });
+    expect(getPendo()?._q?.[1]?.[2]).toEqual({
+      ...message,
+      content: "Use `a | b`.\n[代码块已省略]\n\nName | Value\n--- | ---\nA | 1\nB | 2\n\nDone.",
+    });
+    trackAgent("user_reaction", { ...message, content: "positive" });
+    expect(getPendo()?._q?.[2]?.[2]).toEqual({ ...message, content: "positive" });
   });
 
   it("escapes inline script delimiters while preserving initialization data", () => {

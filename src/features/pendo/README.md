@@ -117,3 +117,21 @@ flush 不等待服务端确认；网络故障、SDK 未加载或浏览器强制�
 参考：[Conversations API](https://support.pendo.io/hc/en-us/articles/41103585431707-Send-conversation-events-using-the-client-side-or-server-side-API)、
 [flushNow](https://web-sdk.pendo.io/public/events/#flushnowoptions--void)、
 [身份 API](https://web-sdk.pendo.io/public/identity/)。
+
+## Agent response content
+
+`compactAgentResponse(content)` is an optional pure helper. It replaces fenced code blocks with an omission marker and keeps each Markdown table header and first two data rows. Remaining rows become an omitted-row count. Narrative text and inline code are preserved. Omitted content is unavailable to Pendo analysis.
+
+The caller chooses whether to process the content; `trackAgent` never compacts messages automatically.
+
+```ts
+import { compactAgentResponse, trackAgent } from "@/features/pendo";
+
+const content = compactAgentResponse(finalAnswer);
+trackAgent("agent_response", {
+  agentId: pendoAgentId,
+  conversationId,
+  messageId: responseId,
+  content,
+});
+```

@@ -10,6 +10,7 @@ import type {
   ThinkingActivityPhase,
 } from "../thinkingActivity";
 import { THINKING_ACTIVITY_TYPE } from "../thinkingActivity";
+import { MCP_APP_ACTIVITY_TYPE } from "../mcpAppActivity";
 
 export type BackendMessage = {
   isCompleted?: boolean;
@@ -23,6 +24,7 @@ export type BackendMessage = {
     | "streaming_completed"
     | "function_call"
     | "tool_result"
+    | "mcp_app"
     | "messages_snapshot"
     | "completed"
     | "error";
@@ -165,6 +167,15 @@ export function createBackendMessageEventConverter(input: RunAgentInput) {
             content: message.message?.content ?? "",
             role: "tool",
           });
+          break;
+        case "mcp_app":
+          events.push({
+            type: EventType.ACTIVITY_SNAPSHOT,
+            messageId: `mcp-app:${messageId}`,
+            activityType: MCP_APP_ACTIVITY_TYPE,
+            content: message.message?.arguments ?? {},
+            replace: true,
+          } satisfies ActivitySnapshotEvent);
           break;
         case "messages_snapshot":
           events.push({

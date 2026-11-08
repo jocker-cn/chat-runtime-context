@@ -12,6 +12,11 @@ export default defineConfig(({ mode }) => {
       host: "127.0.0.1",
       port: 5173,
       proxy: {
+        "^/mcp-apps$": {
+          target: env.VITE_MCP_APPS_URL || "http://127.0.0.1:3001",
+          changeOrigin: true,
+          rewrite: () => "/mcp",
+        },
         [apiPrefix]: {
           target: apiTarget,
           changeOrigin: true,
